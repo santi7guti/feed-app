@@ -1,12 +1,12 @@
-// Soundeo Feed — la app. La carga el cargador (soundeo-feed.user.js) desde este gist.
-// Para publicar una versión nueva: subir este archivo al gist con VERSION actualizada.
+// Soundeo Feed — la app. La carga el cargador (soundeo-feed.user.js) desde GitHub.
+// Para publicar una versión nueva: subir este archivo a main con VERSION actualizada.
 
 (function () {
   'use strict';
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.0.7';
+  const VERSION = '1.1.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -55,6 +55,7 @@
     confirmDownload: true,
     startView: 'feed',
     autoOpen: true,
+    preload: true,
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
@@ -514,10 +515,18 @@
   .ibtn i{width:21px;height:21px;display:block;}
 
   /* feed */
-  .feed{position:absolute;inset:0;overflow-y:scroll;overflow-x:hidden;scroll-snap-type:y mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .feed{position:absolute;inset:0;z-index:2;display:flex;background:var(--bg);overflow-x:scroll;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;touch-action:pan-x;}
   .feed::-webkit-scrollbar{display:none;}
   .app[data-view=list] .feed,.app[data-view=list] .controls{display:none;}
-  .card{position:relative;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
+  .card{position:relative;flex:0 0 100%;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
+  /* gesto de bajar: el feed se arrastra y debajo asoma la lista */
+  .app.peek .list{display:block;}
+  .app.peek .feed{box-shadow:0 -12px 40px rgba(0,0,0,.6);border-radius:18px 18px 0 0;}
+  .app.peek .topbar{background:rgba(11,11,14,.94);border-bottom:1px solid var(--line);}
+  .app.dragging .feed,.app.dragging .controls{transition:none;will-change:transform;}
+  .app.settle .feed,.app.settle .controls{transition:transform .24s cubic-bezier(.2,.8,.2,1);}
+  .app.rise .feed,.app.rise .controls{animation:rise .28s cubic-bezier(.2,.8,.2,1);}
+  @keyframes rise{from{transform:translateY(100%)}to{transform:none}}
   .bg{position:absolute;inset:-12%;background-size:cover;background-position:center;filter:blur(38px) saturate(1.5) brightness(.55);transform:translateZ(0);opacity:0;transition:opacity .35s;}
   .bg.on{opacity:1;}
   .card::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.15) 0%,rgba(0,0,0,0) 30%,rgba(0,0,0,.45) 75%,rgba(0,0,0,.7) 100%);pointer-events:none;}
@@ -591,7 +600,7 @@
   @keyframes pulse{50%{opacity:.6}}
 
   /* lista */
-  .list{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) 0 calc(var(--sb) + 96px);display:none;overscroll-behavior:contain;}
+  .list{position:absolute;inset:0;z-index:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) 0 calc(var(--sb) + 96px);display:none;overscroll-behavior:contain;}
   .app[data-view=list] .list{display:block;}
   .lhead{padding:12px 16px 6px;}
   .fsum{width:100%;text-align:left;background:var(--glass);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;}
@@ -718,9 +727,17 @@
   let view = 'feed';
   let isOpen = false;
   let host, root, app, feedEl, listEl, ctrlEl, miniEl, toastsEl, shadeEl;
-  const audio = new Audio();
-  audio.preload = 'auto';
-  try { audio.setAttribute('playsinline', ''); audio.setAttribute('webkit-playsinline', ''); } catch (e) {}
+  // Dos elementos de audio: uno suena y el otro va cargando la siguiente canción (ver "reproducción").
+  const mkAudio = () => {
+    const a = new Audio();
+    a.preload = 'auto';
+    try { a.setAttribute('playsinline', ''); a.setAttribute('webkit-playsinline', ''); } catch (e) {}
+    return a;
+  };
+  const players = [mkAudio(), mkAudio()];
+  let audio = players[0]; // el que suena
+  const spare = () => (audio === players[0] ? players[1] : players[0]);
+  const pl = { broken: false, unlocked: false, swaps: 0, primes: 0, fails: 0, t0: 0, mode: '', info: null, last: null, stat: { pre: { n: 0, ms: 0 }, cold: { n: 0, ms: 0 } } };
 
   const vpMeta = (() => {
     let m = $('meta[name="viewport"]');
@@ -823,13 +840,15 @@
     $$('.sclose', sr).forEach((b) => b.addEventListener('click', closeSheets));
     setupBar($('.bar', sr));
     feedEl.addEventListener('scroll', onFeedScroll, { passive: true });
+    setupGestures();
+    app.addEventListener('click', unlockSpare, true);
     let rzT = 0;
     const onResize = () => {
       clearTimeout(rzT);
       rzT = setTimeout(() => {
         if (!isOpen || view !== 'feed') return;
         layoutCards();
-        feedEl.scrollTop = activeIdx * feedEl.clientHeight;
+        feedJump(activeIdx);
       }, 120);
     };
     window.addEventListener('resize', onResize);
@@ -856,27 +875,142 @@
     audio.pause();
     wantPlay = false;
   }
-  function setView(v, instant) {
+  // Deja la lista en el día de la canción actual y, si algo suena, centrada en ella.
+  function prepList() {
+    const k = current ? listDays().indexOf(current.day) : -1;
+    if (k >= 0 && k !== listDay) listDay = k;
+    renderList();
+    const r = current && listRowById(current.id);
+    const playing = current && (!audio.paused || audio.currentTime > 0);
+    if (r && playing) listEl.scrollTop = Math.max(0, r.offsetTop - (listEl.clientHeight - r.offsetHeight) / 2);
+    else listEl.scrollTop = 0;
+  }
+  let riseT = 0;
+  function setView(v, instant, prepared) {
+    const prev = view;
     view = v === 'list' ? 'list' : 'feed';
     app.dataset.view = view;
     $$('.seg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
     SS.set('view', view);
     if (view === 'feed') {
+      if (prev === 'list' && !instant && isOpen) {
+        // el feed sube desde abajo con la lista todavía detrás
+        clearTimeout(riseT);
+        app.classList.add('peek', 'rise');
+        riseT = setTimeout(() => app.classList.remove('peek', 'rise'), 300);
+      }
+      feedJump(activeIdx);
       requestAnimationFrame(() => {
         layoutCards();
-        feedEl.scrollTop = activeIdx * feedEl.clientHeight;
+        feedJump(activeIdx);
         onActive(activeIdx, true);
       });
     } else {
-      const k = current ? listDays().indexOf(current.day) : -1;
-      if (k >= 0 && k !== listDay) listDay = k;
-      renderList();
-      const r = current && listRowById(current.id);
-      const playing = current && (!audio.paused || audio.currentTime > 0);
-      if (r && playing) requestAnimationFrame(() => r.scrollIntoView({ block: 'center' }));
-      else listEl.scrollTop = 0;
+      clearTimeout(riseT);
+      app.classList.remove('rise');
+      if (!prepared) { app.classList.remove('peek'); prepList(); }
     }
     syncHash();
+  }
+
+  /* ───────────── gestos ───────────── */
+  // Izquierda/derecha = siguiente/anterior (scroll nativo del feed). Abajo = ir a la lista.
+  function setupGestures() {
+    const EDGE = 20;
+    let g = null;
+    let endT = 0;
+    const setY = (y) => {
+      const tr = y ? 'translate3d(0,' + Math.round(y) + 'px,0)' : '';
+      feedEl.style.transform = tr;
+      ctrlEl.style.transform = tr;
+    };
+    const finish = (toList) => {
+      app.classList.remove('dragging');
+      app.classList.add('settle');
+      void feedEl.offsetHeight; // que la transición salga desde donde está el dedo
+      setY(toList ? feedEl.clientHeight : 0);
+      clearTimeout(endT);
+      endT = setTimeout(() => {
+        if (toList) {
+          setView('list', true, true);
+          if (!dayComplete(listDay) && !pages.loading) loadMore();
+        }
+        app.classList.remove('settle', 'peek');
+        setY(0);
+      }, 250);
+    };
+    const start = (e) => {
+      g = null;
+      if (e.touches.length !== 1 || view !== 'feed' || app.classList.contains('settle') || (e.target.closest && e.target.closest('.bar'))) return;
+      const t = e.touches[0];
+      const inFeed = e.currentTarget === feedEl;
+      const edge = inFeed && (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE);
+      g = { x: t.clientX, y: t.clientY, t: performance.now(), mode: '', dx: 0, dy: 0, manual: edge || !inFeed };
+      // en el borde de la pantalla Safari tiene su gesto de "atrás": lo evitamos y pasamos de canción nosotros
+      if (edge && e.cancelable) e.preventDefault();
+    };
+    const move = (e) => {
+      if (!g || g.mode === 'n') return;
+      const t = e.touches[0];
+      g.dx = t.clientX - g.x;
+      g.dy = t.clientY - g.y;
+      if (!g.mode) {
+        const ax = Math.abs(g.dx);
+        const ay = Math.abs(g.dy);
+        if (ax < 10 && ay < 10) return;
+        if (ay > ax * 1.3) {
+          if (g.dy < 0) { g.mode = 'n'; return; }
+          g.mode = 'y';
+          clearTimeout(riseT);
+          app.classList.remove('rise');
+          app.classList.add('peek', 'dragging');
+          prepList();
+        } else if (g.manual) g.mode = 'x';
+        else { g.mode = 'n'; return; } // horizontal dentro del feed: lo hace el scroll nativo
+      }
+      if (e.cancelable) e.preventDefault();
+      if (g.mode === 'y') setY(Math.max(0, g.dy));
+    };
+    const end = (e) => {
+      const q = g;
+      g = null;
+      if (!q || !q.mode || q.mode === 'n') return;
+      if (e.cancelable) e.preventDefault(); // que no cuente como toque en un botón
+      const ok = e.type === 'touchend';
+      if (q.mode === 'y') {
+        const v = q.dy / Math.max(1, performance.now() - q.t);
+        finish(ok && (q.dy > 110 || (q.dy > 45 && v > 0.55)));
+      } else if (ok && Math.abs(q.dx) > 45) {
+        step(q.dx < 0 ? 1 : -1, false);
+      }
+    };
+    [feedEl, ctrlEl].forEach((n) => {
+      n.addEventListener('touchstart', start, { passive: false });
+      n.addEventListener('touchmove', move, { passive: false });
+      n.addEventListener('touchend', end, { passive: false });
+      n.addEventListener('touchcancel', end, { passive: false });
+    });
+    // mini reproductor (lista): arriba = volver al feed, izquierda/derecha = siguiente/anterior
+    let m = null;
+    miniEl.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      m = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+    }, { passive: true });
+    miniEl.addEventListener('touchend', (e) => {
+      const q = m;
+      m = null;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!q || !t) return;
+      const dx = t.clientX - q.x;
+      const dy = t.clientY - q.y;
+      if (dy < -30 && Math.abs(dy) > Math.abs(dx) * 1.3) {
+        if (e.cancelable) e.preventDefault();
+        setView('feed');
+      } else if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (e.cancelable) e.preventDefault();
+        step(dx < 0 ? 1 : -1, true);
+      }
+    }, { passive: false });
   }
   function syncHash() {
     try {
@@ -979,7 +1113,7 @@
       <p>${more ? 'Trayendo más tracks de Soundeo.' : deck.length ? 'No hay más tracks con estos filtros.' : 'Ya has escuchado todo lo de estos filtros.'}</p>
       ${more ? '<button class="btn pri bnp">Cargar más</button>' : ''}
       ${hiddenN > 0 ? '<button class="btn bsh">Mostrar también las ' + hiddenN + ' escuchadas</button>' : ''}
-      <button class="btn btop">Volver arriba</button>
+      <button class="btn btop">Volver al principio</button>
     </div></section>`);
     const bnp = $('.bnp', c);
     if (bnp) bnp.addEventListener('click', () => { pages.autoEmpty = 0; loadMore(); });
@@ -1062,9 +1196,15 @@
     let idx = keep ? deck.findIndex((t) => t.id === keep.id) : 0;
     if (idx < 0) idx = 0;
     activeIdx = idx;
-    if (view === 'feed') requestAnimationFrame(() => { feedEl.scrollTop = activeIdx * feedEl.clientHeight; onActive(activeIdx, true); });
+    if (view === 'feed') requestAnimationFrame(() => { feedJump(activeIdx); onActive(activeIdx, true); });
   }
   const cardAt = (idx) => feedEl.children[idx] || null;
+  // el feed es una fila de tarjetas a pantalla completa: la posición es scrollLeft / ancho
+  function feedJump(idx, smooth) {
+    const x = idx * feedEl.clientWidth;
+    if (smooth && feedEl.scrollTo) feedEl.scrollTo({ left: x, behavior: 'smooth' });
+    else feedEl.scrollLeft = x;
+  }
   function cardById(id) {
     const idx = deck.findIndex((t) => t.id === id);
     return idx >= 0 ? cardAt(idx) : null;
@@ -1076,8 +1216,8 @@
     if (!scrollRaf) {
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = 0;
-        const h = feedEl.clientHeight || 1;
-        const idx = Math.max(0, Math.min(deck.length, Math.round(feedEl.scrollTop / h)));
+        const w = feedEl.clientWidth || 1;
+        const idx = Math.max(0, Math.min(deck.length, Math.round(feedEl.scrollLeft / w)));
         if (idx !== activeIdx) onActive(idx, false);
       });
     }
@@ -1117,8 +1257,8 @@
     idx = Math.max(0, Math.min(deck.length, idx));
     const t = deck[idx];
     if (t && opts.play) load(t, true); // dentro del gesto del usuario (iOS)
-    if (view === 'feed' && feedEl.clientHeight) {
-      feedEl.scrollTo({ top: idx * feedEl.clientHeight, behavior: opts.instant ? 'auto' : 'smooth' });
+    if (view === 'feed' && feedEl.clientWidth) {
+      feedJump(idx, !opts.instant);
       if (opts.instant) onActive(idx, true);
     } else {
       onActive(idx, true);
@@ -1346,14 +1486,64 @@
   }
 
   /* ───────────── reproducción ───────────── */
+  // Precarga: mientras suena una canción, el otro <audio> va cargando la siguiente. Al pasar de
+  // canción se intercambian los dos y la nueva empieza sin esperar a la red.
+  const bufSecs = (a) => {
+    try { return a.buffered.length ? Math.round(a.buffered.end(a.buffered.length - 1) * 10) / 10 : 0; } catch (e) { return 0; }
+  };
+  function nextUp() {
+    if (!current) return null;
+    if (view === 'list' && listOrder.includes(current.id)) {
+      const id = listOrder[listOrder.indexOf(current.id) + 1];
+      return (id && tracks.find((t) => t.id === id)) || null;
+    }
+    const k = deck.findIndex((t) => t.id === current.id);
+    return k >= 0 ? deck[k + 1] || null : null;
+  }
+  function preloadNext() {
+    if (!prefs.preload || pl.broken || document.hidden) return;
+    const n = nextUp();
+    if (!n || !n.preview) return;
+    const sp = spare();
+    if (sp._sxId === n.id) return; // ya está pedida (si dio error no se reintenta: load() hará la carga normal)
+    sp._sxId = n.id;
+    sp._sxAt = performance.now();
+    try { sp.src = n.preview; sp.load(); pl.primes++; } catch (e) { sp._sxId = null; }
+  }
+  function unlockSpare() {
+    // iOS solo deja sonar un <audio> que se haya usado dentro de un toque: load() en el primer toque lo desbloquea
+    if (pl.unlocked) return;
+    pl.unlocked = true;
+    try { spare().load(); } catch (e) {}
+  }
   function load(t, play) {
     if (!t) return;
+    let swapped = null;
+    let changed = false;
     if (!current || current.id !== t.id) {
+      changed = true;
       current = t;
       if (!t.preview) { toast('Este track no tiene preview'); }
-      audio.src = t.preview || '';
-      try { audio.load(); } catch (e) {}
+      const sp = spare();
+      if (prefs.preload && !pl.broken && !document.hidden && t.preview && sp._sxId === t.id && !sp.error) {
+        // ya estaba cargada en el otro elemento: intercambiar
+        swapped = audio;
+        pl.mode = 'pre';
+        pl.info = { ready: sp.readyState, buf: bufSecs(sp), lead: Math.round(performance.now() - (sp._sxAt || performance.now())) };
+        try { swapped.pause(); } catch (e) {}
+        audio = sp; // el anterior se queda con su canción: si vuelves atrás enseguida, también es instantáneo
+        try { if (audio.currentTime > 0) audio.currentTime = 0; } catch (e) {}
+        pl.swaps++;
+      } else {
+        pl.mode = 'cold';
+        pl.info = null;
+        audio._sxId = t.id;
+        audio.src = t.preview || '';
+        try { audio.load(); } catch (e) {}
+      }
+      if (app) app.classList.remove('spin');
       paintPlayer();
+      paintProgress();
       setMediaSession(t);
       markCurrentRow();
       updateMini();
@@ -1361,11 +1551,35 @@
     }
     if (play) {
       wantPlay = true;
-      const p = audio.play();
+      pl.t0 = changed ? performance.now() : 0;
+      const a = audio;
+      const p = a.play();
       if (p && p.catch) p.catch((err) => {
-        if (err && err.name === 'NotAllowedError') { wantPlay = false; paintPlayer(); toast('Toca ▶ para reproducir'); }
+        if (!err || err.name !== 'NotAllowedError' || a !== audio) return;
+        if (swapped && current && current.id === t.id) {
+          // este iPhone no deja sonar el elemento precargado: volver al de siempre y dejar de precargar
+          pl.broken = true;
+          pl.fails++;
+          pl.mode = 'cold';
+          pl.info = null;
+          a._sxId = null;
+          try { a.removeAttribute('src'); a.load(); } catch (e) {}
+          audio = swapped;
+          audio._sxId = t.id;
+          audio.src = t.preview || '';
+          try { audio.load(); } catch (e) {}
+          paintProgress();
+          const p2 = audio.play();
+          if (p2 && p2.catch) p2.catch((e2) => {
+            if (e2 && e2.name === 'NotAllowedError') { wantPlay = false; paintPlayer(); toast('Toca ▶ para reproducir'); }
+          });
+          return;
+        }
+        wantPlay = false;
+        paintPlayer();
+        toast('Toca ▶ para reproducir');
       });
-    }
+    } else if (changed) pl.t0 = 0;
   }
   function togglePlay() {
     const t = view === 'feed' ? deck[activeIdx] : current || deck[activeIdx];
@@ -1434,17 +1648,31 @@
     bar.addEventListener('pointercancel', end);
   }
 
-  audio.addEventListener('play', paintPlayer);
-  audio.addEventListener('playing', () => { app && app.classList.remove('spin'); paintPlayer(); });
-  audio.addEventListener('waiting', () => app && app.classList.add('spin'));
-  audio.addEventListener('pause', paintPlayer);
-  audio.addEventListener('loadedmetadata', paintProgress);
-  audio.addEventListener('timeupdate', () => {
+  // los eventos solo cuentan si vienen del elemento que está sonando (el otro está precargando)
+  const onAudio = (ev, fn) => players.forEach((a) => a.addEventListener(ev, (e) => { if (a === audio) fn(e); }));
+  onAudio('play', paintPlayer);
+  onAudio('playing', () => {
+    app && app.classList.remove('spin');
+    paintPlayer();
+    if (pl.t0) {
+      // cuánto ha tardado en empezar a sonar (para el diagnóstico: precargada vs. sin precargar)
+      const ms = Math.round(performance.now() - pl.t0);
+      pl.t0 = 0;
+      const st = pl.stat[pl.mode];
+      if (st) { st.n++; st.ms += ms; }
+      pl.last = Object.assign({ mode: pl.mode, ms }, pl.info || {});
+    }
+  });
+  onAudio('waiting', () => app && app.classList.add('spin'));
+  onAudio('pause', paintPlayer);
+  onAudio('loadedmetadata', paintProgress);
+  onAudio('timeupdate', () => {
     const now = performance.now();
     if (now - lastProgPaint > 200) { lastProgPaint = now; paintProgress(); }
     if (current && audio.currentTime >= 4) markHeard(current.id);
+    if (wantPlay && audio.currentTime >= 1) preloadNext();
   });
-  audio.addEventListener('ended', () => {
+  onAudio('ended', () => {
     paintPlayer();
     if (!prefs.autoNext) { wantPlay = false; return; }
     const idx = current ? deck.findIndex((t) => t.id === current.id) : activeIdx;
@@ -1456,7 +1684,7 @@
     if (idx >= 0 && idx + 1 < deck.length) goTo(idx + 1, { play: true });
     else if (view === 'feed') goTo(deck.length);
   });
-  audio.addEventListener('error', () => {
+  onAudio('error', () => {
     if (!current || !audio.getAttribute('src')) return;
     const m = (current.preview || '').match(/[?&]t=(\d{9,})/);
     if (m && +m[1] * 1000 < Date.now()) {
@@ -1934,6 +2162,7 @@
 
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
+      <div class="tg"><div><b>Precargar la siguiente canción</b><small>Al pasar de canción empieza a sonar antes. Gasta algo más de datos</small></div><button class="sw" data-p="preload"></button></div>
       <div class="tg"><div><b>Feed: solo lo que no he escuchado</b><small>Oculta los tracks que ya sonaron ≥ 4 s</small></div><button class="sw" data-p="skipHeard"></button></div>
       <div class="tg"><div><b>Sincronizar escuchadas con la web</b><small>Lo que Soundeo marca como escuchado cuenta aquí, y lo que escuchas aquí se marca en Soundeo</small></div><button class="sw" data-p="siteHeard"></button></div>
       <div class="tg"><div><b>Confirmar antes de descargar</b><small>Para no gastar descargas sin querer</small></div><button class="sw" data-p="confirmDownload"></button></div>
@@ -2037,6 +2266,12 @@
           forced = new Set();
           rebuild(current || deck[activeIdx]);
         }
+        if (p === 'preload' && !prefs.preload) {
+          // dejar de descargar lo que estuviera precargando
+          const sp = spare();
+          sp._sxId = null;
+          try { sp.removeAttribute('src'); sp.load(); } catch (e) {}
+        }
       });
     });
     const paintSv = () => $$('.sv button', b).forEach((x) => x.classList.toggle('on', x.dataset.v === prefs.startView));
@@ -2076,6 +2311,12 @@
       jq: typeof window.jQuery,
     };
     out.loader = loader() ? { v: loader().version, running: loader().running, src: loader().source } : null;
+    const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
+    out.player = {
+      preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
+      startMs: { pre: avg(pl.stat.pre), preN: pl.stat.pre.n, cold: avg(pl.stat.cold), coldN: pl.stat.cold.n }, last: pl.last,
+      spare: { id: spare()._sxId || null, ready: spare().readyState, buf: bufSecs(spare()), err: spare().error ? spare().error.code : null },
+    };
     out.lastAction = lastAction;
     out.capture = cap.items;
     out.counters = { downloads: dlLeft(), favorites: favCount() };
@@ -2280,6 +2521,10 @@
           hiddenAtLoad = hiddenFor(tracks);
           rebuild(deck[0]);
         }), 600);
+      }
+      if (!LS.get('hintSwipe', false)) {
+        LS.set('hintSwipe', true);
+        setTimeout(() => toast('Nuevo: desliza ← → para cambiar de canción y ↓ para ir a la lista', 'Vale', () => {}), 900);
       }
       if (SS.get('autoplay', 0)) {
         SS.del('autoplay');
