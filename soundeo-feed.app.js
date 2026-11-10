@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.1.2';
+  const VERSION = '1.2.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -56,10 +56,13 @@
     startView: 'feed',
     autoOpen: true,
     preload: true,
+    startSection: 'avail',
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
   const savePrefs = () => LS.set('prefs', prefs);
+  // antes "incluir no disponibles" era un filtro; ahora es la sección «Todos los tracks»
+  if (!LS.get('prefs', {}).startSection && String(defFilters.available) === '0') prefs.startSection = 'all';
 
   const FALLBACK_GENRES = [
     ['95', '140 / Deep Dubstep / Grime'], ['102', 'African'], ['89', 'Afro House'], ['98', 'Amapiano'],
@@ -126,7 +129,7 @@
 
   /* ───────────────────────── URL / filtros ───────────────────────── */
   function filtersFromUrl(href) {
-    const q = new URL(href || location.href).searchParams;
+    const q = new URL(href || location.href, location.href).searchParams;
     const bpm = (q.get('bpmFilter') || '').split(',').filter(Boolean).map(Number);
     return {
       genres: (q.get('genreFilter') || '').split(',').filter(Boolean),
@@ -141,6 +144,7 @@
       label: q.get('labelFilter') || '',
     };
   }
+  const bpmParam = (f) => (f.bpmMin != null || f.bpmMax != null ? (f.bpmMin != null ? f.bpmMin : 0) + ',' + (f.bpmMax != null ? f.bpmMax : 260) : '');
   function buildListUrl(f) {
     const p = new URLSearchParams();
     p.set('availableFilter', f.available == null ? '1' : String(f.available));
@@ -148,26 +152,92 @@
     p.set('labelFilter', f.label || '');
     p.set('genreFilter', (f.genres || []).join(','));
     p.set('timeFilter', f.time || '0');
-    const hasBpm = f.bpmMin != null || f.bpmMax != null;
-    p.set('bpmFilter', hasBpm ? (f.bpmMin != null ? f.bpmMin : 0) + ',' + (f.bpmMax != null ? f.bpmMax : 260) : '');
+    p.set('bpmFilter', bpmParam(f));
     p.set('keyFilter', (f.keys || []).join(','));
     p.set('modeFilter', '1');
     p.set('trackTypeFilter', f.trackType || '0');
     p.set('searchFilter', f.search || '');
     return location.origin + '/list/tracks?' + p.toString();
   }
+
+  /* ───────────────────────── secciones y fuentes ───────────────────────── */
+  // Las secciones son el menú de la web de Soundeo. `loose`: páginas que no son /list (puede que no
+  // hagan caso a los filtros por URL; en ese caso el género se filtra aquí).
+  const SECTIONS = [
+    { key: 'avail', name: 'Descargas disponibles', hint: 'Lo que ya se puede descargar', icon: 'dl', path: '/list/tracks', available: '1', filters: true, hide: true },
+    { key: 'all', name: 'Todos los tracks', hint: 'Incluye los que aún hay que votar', icon: 'feed', path: '/list/tracks', available: '0', filters: true, hide: true },
+    { key: 'upcoming', name: 'Próximos lanzamientos', hint: 'Upcoming tracks', icon: 'clock', path: '/upcoming', filters: true, loose: true, hide: true },
+    { key: 'top100', name: 'Top 100 descargas', hint: 'Lo más descargado', icon: 'up', path: '/top100', filters: true, loose: true },
+    { key: 'followed', name: 'Seguidos', hint: 'Novedades de artistas y sellos que sigues', icon: 'user', path: '/account/followed' },
+    { key: 'favs', name: 'Mis favoritos', hint: '', icon: 'star', path: '/account/favorites' },
+    { key: 'downloads', name: 'Mis descargas', hint: '', icon: 'check', path: '/account/downloads' },
+  ];
+  const sectionByKey = (k) => SECTIONS.find((s) => s.key === k) || SECTIONS[0];
+  function sectionUrl(sec, f) {
+    f = f || {};
+    if (sec.path === '/list/tracks') return buildListUrl(Object.assign({}, f, { available: sec.available, artist: '', label: '', search: f.search || '' }));
+    if (!sec.filters) return location.origin + sec.path;
+    const p = new URLSearchParams();
+    if (f.genres && f.genres.length) p.set('genreFilter', f.genres.join(','));
+    if (bpmParam(f)) p.set('bpmFilter', bpmParam(f));
+    if (f.keys && f.keys.length) p.set('keyFilter', f.keys.join(','));
+    if (f.time && String(f.time) !== '0') p.set('timeFilter', String(f.time));
+    const qs = p.toString();
+    return location.origin + sec.path + (qs ? '?' + qs : '');
+  }
+  const cleanFilters = (f) => ({
+    genres: (f.genres || []).map(String), bpmMin: f.bpmMin == null ? null : +f.bpmMin, bpmMax: f.bpmMax == null ? null : +f.bpmMax,
+    time: String(f.time || '0'), keys: (f.keys || []).slice(), available: f.available == null ? '1' : String(f.available),
+    trackType: String(f.trackType || '0'), search: f.search || '', artist: '', label: '',
+  });
+  // Descripción de una fuente: lo mínimo para poder (re)cargarla.
+  function sectionDesc(key, f) {
+    const sec = sectionByKey(key);
+    const filters = sec.filters ? cleanFilters(Object.assign({}, f || defFilters, sec.available != null ? { available: sec.available } : {})) : null;
+    return { kind: 'section', key: sec.key, title: sec.name, url: sectionUrl(sec, filters), filters, canFilter: !!sec.filters, hide: !!sec.hide, loose: !!sec.loose };
+  }
+  const artistDesc = (id, name) => ({ kind: 'artist', title: name || 'Artista', refId: String(id), url: buildListUrl({ available: '0', artist: String(id), genres: [], time: '0' }) });
+  const labelDesc = (id, name) => ({ kind: 'label', title: name || 'Sello', refId: String(id), url: buildListUrl({ available: '0', label: String(id), genres: [], time: '0' }) });
+  const releaseDesc = (url, name) => ({ kind: 'release', title: name || 'Release', url });
+  const searchDesc = (q) => ({ kind: 'search', title: '“' + q + '”', query: q, url: location.origin + '/search?q=' + encodeURIComponent(q) });
+  const genreDesc = (id, name) => {
+    const filters = cleanFilters({ genres: [String(id)], available: '1' });
+    return { kind: 'genre', key: null, title: name || genreName(id), url: buildListUrl(filters), filters, canFilter: true, hide: true };
+  };
+  // ¿Qué es esta URL de Soundeo? (para la página en la que arranca la app)
+  function describeUrl(href) {
+    let u;
+    try { u = new URL(href, location.href); } catch (e) { return null; }
+    const url = u.href.split('#')[0];
+    const p = u.pathname;
+    if (/^\/list\/(tracks|releases)/.test(p)) {
+      const f = filtersFromUrl(url);
+      if (f.artist) return Object.assign(artistDesc(f.artist), { url });
+      if (f.label) return Object.assign(labelDesc(f.label), { url });
+      const key = String(f.available) === '0' ? 'all' : 'avail';
+      return { kind: 'section', key, title: sectionByKey(key).name, url, filters: cleanFilters(f), canFilter: true, hide: true };
+    }
+    if (/^\/release\//.test(p)) return releaseDesc(url);
+    if (/^\/search/.test(p)) return Object.assign(searchDesc(u.searchParams.get('q') || ''), { url });
+    const sec = SECTIONS.find((s) => s.path !== '/list/tracks' && p.indexOf(s.path) === 0 && !/\/edit/.test(p));
+    if (sec) return Object.assign(sectionDesc(sec.key, sec.filters ? filtersFromUrl(url) : null), { url });
+    return { kind: 'page', title: clean(document.title.replace(/»?\s*Soundeo\s*$/i, '')) || 'Soundeo', url };
+  }
+  const normFilters = (x) => JSON.stringify({
+    g: (x.genres || []).map(String).sort(), a: x.bpmMin == null ? null : +x.bpmMin, z: x.bpmMax == null ? null : +x.bpmMax,
+    t: String(x.time || '0'), k: (x.keys || []).slice().sort(), av: String(x.available == null ? '1' : x.available),
+    tt: String(x.trackType || '0'), s: x.search || '', l: x.label || '', ar: x.artist || '',
+  });
+  // La app arranca siempre desde una lista normal (disponibles o todos) con los filtros de inicio.
+  const startListKey = () => (prefs.startSection === 'all' ? 'all' : 'avail');
+  const startUrl = () => sectionUrl(sectionByKey(startListKey()), defFilters);
   function sameAsStart() {
-    const norm = (x) => JSON.stringify({
-      g: (x.genres || []).map(String).sort(), a: x.bpmMin == null ? null : +x.bpmMin, z: x.bpmMax == null ? null : +x.bpmMax,
-      t: String(x.time || '0'), k: (x.keys || []).slice().sort(), av: String(x.available == null ? '1' : x.available),
-      tt: String(x.trackType || '0'), s: x.search || '', l: x.label || '', ar: x.artist || '',
-    });
-    return norm(filtersFromUrl()) === norm(defFilters);
+    if (!/^\/list\/tracks/.test(location.pathname)) return false;
+    return normFilters(filtersFromUrl()) === normFilters(Object.assign({}, defFilters, { available: sectionByKey(startListKey()).available, artist: '', label: '', search: '' }));
   }
   function describeFilters(f) {
+    if (!f) return '';
     const parts = [];
-    if (f.label) parts.push('Sello');
-    if (f.artist) parts.push('Artista');
     if (f.genres && f.genres.length) parts.push(f.genres.length === 1 ? genreName(f.genres[0]) : f.genres.length + ' géneros');
     else parts.push('Todos los géneros');
     if (f.bpmMin != null || f.bpmMax != null) parts.push((f.bpmMin != null ? f.bpmMin : 0) + '–' + (f.bpmMax != null ? f.bpmMax : 260) + ' BPM');
@@ -175,26 +245,11 @@
     if (t && t[0] !== '0') parts.push(t[1]);
     if (f.keys && f.keys.length) parts.push(f.keys.length + (f.keys.length === 1 ? ' tono' : ' tonos'));
     if (f.search) parts.push('“' + f.search + '”');
-    if (String(f.available) === '0') parts.push('incl. no disponibles');
     return parts.join(' · ');
   }
   function pageNumber() {
     const n = parseInt(new URL(location.href).searchParams.get('page') || '1', 10);
     return isFinite(n) && n > 0 ? n : 1;
-  }
-  function pageUrl(delta) {
-    const act = $('.pagination li.active');
-    const sib = act && (delta > 0 ? act.nextElementSibling : act.previousElementSibling);
-    const a = sib && sib.querySelector('a[href]');
-    if (a) return a.href;
-    const target = pageNumber() + delta;
-    if (target < 1) return null;
-    if (delta > 0 && !$('.pagination')) return null;
-    const u = new URL(location.href);
-    u.hash = '';
-    if (target === 1) u.searchParams.delete('page');
-    else u.searchParams.set('page', String(target));
-    return u.toString();
   }
   function parseHash() {
     const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
@@ -239,18 +294,28 @@
   /* ───────────────────────── tracks ───────────────────────── */
   const MONTHS_EN = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
   const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-  function dayLabel(txt) {
+  const dayCache = new Map();
+  function parseDay(txt) {
+    if (dayCache.has(txt)) return dayCache.get(txt);
     const m = clean(txt).match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
-    if (!m || MONTHS_EN[m[2].toLowerCase()] == null) return clean(txt);
-    const d = new Date(+m[3], MONTHS_EN[m[2].toLowerCase()], +m[1]);
+    const d = m && MONTHS_EN[m[2].toLowerCase()] != null ? new Date(+m[3], MONTHS_EN[m[2].toLowerCase()], +m[1]) : null;
+    dayCache.set(txt, d);
+    return d;
+  }
+  // { big: 'Hoy', sub: 'Martes, 10 de noviembre', short: '10 nov' }
+  function dayParts(dayTxt) {
+    const d = parseDay(dayTxt);
+    if (!d) return { big: clean(dayTxt) || 'Tracks', sub: '', short: clean(dayTxt) };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const diff = Math.round((today - d) / 86400000);
-    const short = d.getDate() + ' ' + MONTHS_ES[d.getMonth()];
-    if (diff === 0) return 'Hoy · ' + short;
-    if (diff === 1) return 'Ayer · ' + short;
-    return short + (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '');
+    const short = d.getDate() + ' ' + MONTHS_ES[d.getMonth()] + (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '');
+    let sub = '';
+    try { sub = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { sub = short; }
+    sub = sub.charAt(0).toUpperCase() + sub.slice(1);
+    return { big: diff === 0 ? 'Hoy' : diff === 1 ? 'Ayer' : short, sub, short };
   }
+  const dayShort = (txt) => { const p = dayParts(txt); return parseDay(txt) ? (p.big === 'Hoy' || p.big === 'Ayer' ? p.big : p.short) : p.short; };
   function splitTitle(full) {
     let artist = '';
     let rest = full;
@@ -262,70 +327,127 @@
     if (m) { name = m[1]; mix = m[2]; }
     return { artist, name, mix };
   }
-  const absHref = (a) => { if (!a) return ''; try { return new URL(a.getAttribute('href'), location.href).href; } catch (e) { return a.href || ''; } };
-  const absSrc = (img) => { if (!img) return ''; const v = img.getAttribute('src') || ''; try { return new URL(v, location.href).href; } catch (e) { return v; } };
-  function parseItem(node, day, folder) {
-    const id = node.getAttribute('data-track-id');
-    const titleA = $('.info strong a', node) || $('.info a', node);
+  const absUrl = (v, base) => { if (!v) return ''; try { return new URL(v, base || location.href).href; } catch (e) { return v; } };
+  const absHref = (a, base) => (a ? absUrl(a.getAttribute('href'), base) : '');
+  const paramOf = (url, name) => { try { return new URL(url, location.href).searchParams.get(name) || ''; } catch (e) { return ''; } };
+  function parseItem(node, day, folder, base, forcedId) {
+    const id = forcedId || node.getAttribute('data-track-id');
+    const titleA = $('.info strong a', node) || $('a[href*="/track/"]', node) || $('.info a', node);
     const full = clean(titleA && titleA.textContent);
     const parts = splitTitle(full);
     const img = $('img.cover', node) || $('img', node);
-    const span = $('.info span', node);
-    const links = span ? $$('a[href]', span) : [];
+    const span = $('.info span', node) || node;
+    const links = $$('a[href]', span);
     const relA = links.find((a) => /\/release\//.test(a.getAttribute('href')));
     const labelA = links.find((a) => /[?&]labelFilter=\d/.test(a.getAttribute('href')));
     const genreA = links.find((a) => /[?&]genreFilter=\d/.test(a.getAttribute('href')));
-    const dateM = span && span.textContent.match(/\d{4}-\d{2}-\d{2}/);
+    const dateM = span.textContent.match(/\d{4}-\d{2}-\d{2}/);
     const btn = $('button.action[data-track-url]', node) || $('[data-track-url]', node);
     const dlWrap = $('.download', node);
-    const el = node;
-    let labelId = '';
-    if (labelA) { try { labelId = new URL(absHref(labelA)).searchParams.get('labelFilter') || ''; } catch (e) {} }
+    const time = $('.info time', node) || $('time', node);
     return {
       id,
-      el,
       full,
       artist: parts.artist,
       name: parts.name || full,
       mix: parts.mix,
-      trackUrl: absHref(titleA),
-      cover: absSrc(img),
+      trackUrl: absHref(titleA, base),
+      cover: absUrl(img && img.getAttribute('src'), base),
       preview: btn ? btn.getAttribute('data-track-url') : '',
-      duration: clean($('.info time', el) && $('.info time', el).textContent),
+      duration: clean(time && time.textContent),
       release: clean(relA && relA.textContent),
-      releaseUrl: absHref(relA),
+      releaseUrl: absHref(relA, base),
       label: clean(labelA && labelA.textContent),
-      labelId,
+      labelId: labelA ? paramOf(absHref(labelA, base), 'labelFilter') : '',
       genre: clean(genreA && genreA.textContent) || folder,
+      genreId: genreA ? paramOf(absHref(genreA, base), 'genreFilter') : '',
       date: dateM ? dateM[0] : '',
       day,
-      dayLabel: dayLabel(day),
-      explicit: !!$('.explicit', el),
-      downloads: $$('a.track-download-lnk', el).map((a) => ({
+      explicit: !!$('.explicit', node),
+      downloads: $$('a.track-download-lnk', node).map((a) => ({
         fmt: a.getAttribute('data-track-format'),
         name: clean(a.children[0] && a.children[0].textContent) || 'Archivo',
         size: clean(a.children[1] && a.children[1].textContent),
       })),
       siteDownloaded: !!(dlWrap && dlWrap.className.replace(/\bdownload\b/, '').trim()),
       siteHeard: !!$('.vis.listened', node),
-      vote: $('.vote', el),
+      fav: !!$('button.favorites.favored', node),
+      vote: !!$('.vote', node),
     };
   }
-  function parseTracks(root, startDay) {
-    const left = root ? $('.content .left', root) || root : $('.content .left') || document.body;
+  // Tracks de una página de Soundeo (la que está abierta o una traída por fetch).
+  function parseTracks(root, startDay, base) {
+    const left = (root && ($('.content .left', root) || $('.content', root) || root.body)) || root || $('.content .left') || document.body;
     let day = startDay || '';
     let folder = '';
     const out = [];
+    const seen = new Set();
+    const add = (t) => { if (t.id && !seen.has(t.id) && (t.full || t.preview)) { seen.add(t.id); out.push(t); } };
     $$('h1, .folder > h2, .trackitem[data-track-id]', left).forEach((n) => {
-      if (n.tagName === 'H1') { day = clean(n.textContent); return; }
+      if (n.tagName === 'H1') {
+        // los h1 con fecha separan los días; "h1.line" es el título de la página (artista, release…)
+        const tx = clean(n.textContent);
+        if (parseDay(tx)) day = tx;
+        else if (!n.classList.contains('line')) day = tx;
+        return;
+      }
       if (n.tagName === 'H2') { folder = clean(n.textContent); return; }
-      const t = parseItem(n, day, folder);
-      if (t.id) out.push(t);
+      add(parseItem(n, day, folder, base));
     });
+    if (!out.length) {
+      // páginas con otro marcado: cualquier bloque con botón de preview y enlace al track
+      $$('[data-track-url]', left).forEach((btn) => {
+        let box = btn.parentElement;
+        while (box && box !== left && !$('a[href*="/track/"]', box)) box = box.parentElement;
+        if (!box || box === left) return;
+        const a = $('a[href*="/track/"]', box);
+        const id = btn.getAttribute('data-track-id') || box.getAttribute('data-track-id') || ((a.getAttribute('href').match(/-(\d+)\.html/) || [])[1]);
+        add(parseItem(box, day, folder, base, id));
+      });
+    }
     return out;
+  }
+  // Todo lo que interesa de una página: tracks, título, total, botón de seguir, siguiente página…
+  function readDoc(doc, base, startDay) {
+    const left = $('.content .left', doc) || $('.content', doc) || doc.body || doc;
+    const out = { tracks: parseTracks(doc, startDay, base), title: '', count: null, follow: null, msg: '', next: null, release: null };
+    const h = $('h1.line', left);
+    if (h) {
+      const sup = $('sup', h);
+      const n = sup ? parseInt(clean(sup.textContent).replace(/[^\d]/g, ''), 10) : NaN;
+      if (isFinite(n)) out.count = n;
+      out.title = clean(Array.from(h.childNodes).filter((x) => x.nodeType === 3 || (x.nodeType === 1 && !/^(sup|i|button)$/i.test(x.tagName))).map((x) => x.textContent).join(' ')).replace(/^Tracks by\s+/i, '');
+      const fb = $('.favor-btn', h);
+      if (fb) out.follow = followInfo(fb);
+    }
+    out.msg = $$('p.great-message, .great-message', left).map((p) => clean(p.textContent)).filter(Boolean).slice(0, 2).join(' ');
+    const act = $('.pagination li.active', left);
+    const sib = act && act.nextElementSibling;
+    const a = sib && $('a[href]', sib);
+    out.next = a ? absHref(a, base) : null;
+    const rel = $('.release', left);
+    if (rel) {
+      const im = $('.thumbnail img, img.cover', rel);
+      out.release = {
+        cover: absUrl(im && im.getAttribute('src'), base),
+        rows: $$('tr', rel).map((tr) => [clean(tr.children[0] && tr.children[0].textContent), clean(tr.children[1] && tr.children[1].textContent)]).filter((r) => r[0] && r[1]).slice(0, 8),
+        artists: $$('.full-artist-link a[href*="artistFilter="]', rel).map((x) => [paramOf(absHref(x, base), 'artistFilter'), clean(x.textContent)]).filter((x) => x[0]),
+        label: (() => { const x = $$('a[href*="labelFilter="]', rel).find((y) => paramOf(absHref(y, base), 'labelFilter')); return x ? [paramOf(absHref(x, base), 'labelFilter'), clean(x.textContent)] : null; })(),
+      };
+    }
+    return out;
+  }
+  // <i class="favor-btn favor-artist" data-artist-id="…" title="Follow artist">
+  function followInfo(fb) {
+    const type = fb.classList.contains('favor-label') ? 'label' : 'artist';
+    const id = fb.getAttribute('data-' + type + '-id') || fb.getAttribute('data-artist-id') || fb.getAttribute('data-label-id') || fb.getAttribute('data-id') || '';
+    const title = fb.getAttribute('title') || '';
+    const on = /favored|active|followed|\bon\b|checked/.test(fb.className.replace(/favor-(btn|artist|label)/g, '')) || /^(un|stop|remove)/i.test(title);
+    return id ? { type, id, on } : null;
   }
 
   /* ───────────────────────── estado persistente ───────────────────────── */
+  const HEARD_AFTER = 0.5; // segundos sonando para que cuente como escuchada
   const heard = new Set(LS.get('heard', []));
   let heardSaveT = 0;
   const isHeard = (t) => !!t && (heard.has(t.id) || (prefs.siteHeard && t.siteHeard));
@@ -333,31 +455,30 @@
     if (!id || heard.has(id)) return;
     heard.add(id);
     clearTimeout(heardSaveT);
-    heardSaveT = setTimeout(() => LS.set('heard', Array.from(heard).slice(-6000)), 800);
+    heardSaveT = setTimeout(() => LS.set('heard', Array.from(heard).slice(-8000)), 800);
     const row = listRowById(id);
     if (row) row.classList.add('heard');
-    const t = tracks.find((x) => x.id === id);
-    const vis = t && t.el && $('.vis', t.el);
+    const t = byId.get(id) || (current && current.id === id ? current : null);
+    // que la web original también la vea como escuchada
+    const vis = /^\d+$/.test(id) ? $('.trackitem[data-track-id="' + id + '"] .vis') : null;
     if (vis) vis.classList.add('listened');
-    if (prefs.siteHeard) syncListenToSite(id);
+    updateListCount();
+    if (prefs.siteHeard) syncListenToSite(id, t);
   }
   // GET /tracks/status/<id>: lo que llama el reproductor de Soundeo al poner un track; lo marca como escuchado en la web
-  function syncListenToSite(id) {
+  function syncListenToSite(id, t) {
     try {
       siteRequest('/tracks/status/' + encodeURIComponent(id), 'GET').then(({ r }) => {
-        const t = tracks.find((x) => x.id === id);
-        if (!t) return;
-        t.siteHeard = true;
+        if (t) t.siteHeard = true;
         const tr = r && r.track;
         if (!tr) return;
-        if (!metaCache[id]) {
-          const m = { b: num(tr.bpm), k: keyFromText(String(tr.key || '').replace(/\s\(.*\)/, '')) };
-          if (m.b || m.k) { metaCache[id] = m; saveMeta(); paintMeta(t); }
+        const old = metaCache[id] || {};
+        if (!old.b || !old.k) {
+          const m = { b: old.b || num(tr.bpm), k: old.k || keyFromText(String(tr.key || '').replace(/\s\(.*\)/, '')) };
+          if (old.ar) m.ar = old.ar;
+          if (m.b || m.k) { metaCache[id] = m; saveMeta(); if (t) paintMeta(t); }
         }
-        if (tr.hasOwnProperty('favored')) {
-          const b = origFav(t);
-          if (b && !favPending.has(id)) { b.classList.toggle('favored', !!tr.favored); repaintFav(id); }
-        }
+        if (tr.hasOwnProperty('favored') && !favPending.has(id)) { setFavKnown(id, !!tr.favored, t); repaintFav(id); }
       }).catch(() => {});
     } catch (e) {}
   }
@@ -375,10 +496,10 @@
       const keys = Object.keys(metaCache);
       if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach((k) => delete metaCache[k]);
       LS.set('meta', metaCache);
-    }, 600);
+    }, 1500);
   }
 
-  /* ───────────────────────── BPM / tono desde la página del track ───────────────────────── */
+  /* ───────────────────────── BPM / tono / artistas desde la página del track ───────────────────────── */
   const num = (s) => {
     const m = String(s || '').match(/\d{2,3}(?:[.,]\d+)?/);
     if (!m) return null;
@@ -390,7 +511,7 @@
     return k ? k.label : null;
   }
   function stripChrome(doc) {
-    $$('section.player, header, .right, #sidebarContainer, script, style, noscript', doc).forEach((n) => n.remove());
+    $$('section.player, header, .right, #sidebarContainer, #relatedTracksContainer, script, style, noscript', doc).forEach((n) => n.remove());
     return $('.content .left', doc) || $('.content', doc) || doc.body;
   }
   function parseTrackPage(html, t) {
@@ -412,6 +533,13 @@
     const text = clean(scope.textContent);
     if (!bpm) { const m = text.match(/\bBPM\b\s*:?\s*(\d{2,3}(?:\.\d+)?)/i) || text.match(/(\d{2,3}(?:\.\d+)?)\s*BPM\b/i); if (m) bpm = num(m[1]); }
     if (!key) { const m = text.match(/\bKey\b\s*:?\s*([A-G]\s?[♭♯#b]?\s?(?:maj(?:or)?|min(?:or)?))\b/i); if (m) key = keyFromText(m[1].replace(/\s+/g, '')); }
+    // artistas (con su id) para poder abrir su página
+    const ar = [];
+    $$('.full-artist-link a[href*="artistFilter="], a[href*="artistFilter="]', scope).forEach((a) => {
+      const id = paramOf(a.getAttribute('href'), 'artistFilter');
+      const name = clean(a.textContent);
+      if (id && name && !ar.some((x) => x[0] === id)) ar.push([id, name]);
+    });
     // tamaño de portada más grande visto en la página
     let best = 0;
     [ogImg].concat($$('img', scope).map((i) => i.getAttribute('src') || '')).forEach((u) => {
@@ -423,9 +551,10 @@
       LS.set('coverSize', coverSize);
       refreshCovers();
     }
-    return { b: bpm, k: key };
+    return { b: bpm, k: key, ar: ar.slice(0, 6) };
   }
   const metaPending = new Map();
+  const metaTried = new Set();
   let metaActive = 0;
   const metaQueue = [];
   function pumpMeta() {
@@ -435,21 +564,30 @@
       job().finally(() => { metaActive--; pumpMeta(); });
     }
   }
-  function getMeta(t) {
+  // needArtists: aunque ya tengamos BPM y tono, volver a mirar la página si faltan los artistas
+  function getMeta(t, needArtists, urgent) {
     if (!t || !t.trackUrl) return Promise.resolve(null);
-    if (metaCache[t.id]) return Promise.resolve(metaCache[t.id]);
+    const have = metaCache[t.id];
+    if (have && (have.ar || !needArtists)) return Promise.resolve(have);
     if (metaPending.has(t.id)) return metaPending.get(t.id);
+    if (!needArtists && metaTried.has(t.id)) return Promise.resolve(have || null);
+    metaTried.add(t.id);
     const p = new Promise((resolve) => {
-      metaQueue.push(() =>
+      const job = () =>
         fetch(t.trackUrl, { credentials: 'include' })
           .then((r) => (r.ok ? r.text() : ''))
           .then((html) => {
             const m = html ? parseTrackPage(html, t) : null;
-            if (m && (m.b || m.k)) { metaCache[t.id] = m; saveMeta(); }
-            resolve(m);
+            if (m && (m.b || m.k || m.ar.length)) {
+              const old = metaCache[t.id] || {};
+              metaCache[t.id] = { b: m.b || old.b || null, k: m.k || old.k || null, ar: m.ar };
+              saveMeta();
+            }
+            resolve(metaCache[t.id] || m);
           })
-          .catch(() => resolve(null))
-      );
+          .catch(() => resolve(metaCache[t.id] || null))
+          .finally(() => metaPending.delete(t.id));
+      if (urgent) metaQueue.unshift(job); else metaQueue.push(job);
       pumpMeta();
     });
     metaPending.set(t.id, p);
@@ -473,6 +611,13 @@
     fwd: '<svg viewBox="0 0 24 24"><path d="M18.5 12a6.5 6.5 0 1 1-2-4.7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M16.4 3.6v4.1h-4.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     up: '<svg viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     ext: '<svg viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5l-8.5 8.5M17.5 14v4.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1H10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    menu: '<svg viewBox="0 0 24 24"><path d="M4.5 7h15M4.5 12h15M4.5 17h15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>',
+    search: '<svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="5.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.2 15.2l4.3 4.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    chev: '<svg viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.3" r="3.6" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M5 19.5c.8-3.4 3.6-5.2 7-5.2s6.2 1.8 7 5.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+    disc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>',
+    tag: '<svg viewBox="0 0 24 24"><path d="M4.5 12.6V5.5a1 1 0 0 1 1-1h7.1l7 7a1 1 0 0 1 0 1.4l-6.7 6.7a1 1 0 0 1-1.4 0z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="8.6" cy="8.6" r="1.3" fill="currentColor"/></svg>',
+    clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 7.6V12l3 2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     feed: '<svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 9.6v4.8l4-2.4z" fill="currentColor"/></svg>',
   };
 
@@ -500,17 +645,18 @@
   .root.open .app{display:block;}
 
   /* barra superior */
-  .topbar{position:absolute;left:0;right:0;top:0;z-index:30;padding:calc(var(--st) + 8px) 12px 10px;display:flex;align-items:center;gap:10px;
+  .topbar{position:absolute;left:0;right:0;top:0;z-index:30;padding:calc(var(--st) + 8px) 12px 10px;display:flex;align-items:center;gap:8px;
     background:linear-gradient(to bottom,rgba(0,0,0,.62),rgba(0,0,0,0));pointer-events:none;}
-  .app[data-view=list] .topbar{background:rgba(11,11,14,.94);-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line);}
+  .app[data-view=list] .topbar{background:rgba(11,11,14,.97);border-bottom:1px solid var(--line);}
   .topbar>*{pointer-events:auto;}
   .seg{display:flex;background:var(--glass);border-radius:999px;padding:3px;}
-  .seg button{padding:7px 15px;border-radius:999px;font-size:14px;font-weight:600;color:var(--mut);}
+  .seg button{padding:7px 13px;border-radius:999px;font-size:14px;font-weight:600;color:var(--mut);}
   .seg button.on{background:var(--fg);color:#000;}
   .tb-sp{flex:1;}
   .pill{display:flex;align-items:center;gap:5px;height:34px;padding:0 11px;border-radius:999px;background:var(--glass);font-size:13px;font-weight:600;}
   .pill i{width:16px;height:16px;display:block;}
   .pill.zero{color:#ff8a7a;}
+  @media (max-width:374px){.dlleft{display:none;}}
   .ibtn{width:38px;height:38px;border-radius:50%;background:var(--glass);display:grid;place-items:center;}
   .ibtn i{width:21px;height:21px;display:block;}
 
@@ -519,10 +665,12 @@
   .feed::-webkit-scrollbar{display:none;}
   .app[data-view=list] .feed,.app[data-view=list] .controls{display:none;}
   .card{position:relative;flex:0 0 100%;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
-  .bg{position:absolute;inset:-12%;background-size:cover;background-position:center;filter:blur(38px) saturate(1.5) brightness(.55);transform:translateZ(0);opacity:0;transition:opacity .35s;}
-  .bg.on{opacity:1;}
+  .card.ph{background:var(--bg);}
+  .bg{position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity .25s;pointer-events:none;}
+  .bg.on{opacity:.62;}
   .card::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.15) 0%,rgba(0,0,0,0) 30%,rgba(0,0,0,.45) 75%,rgba(0,0,0,.7) 100%);pointer-events:none;}
   .cin{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;padding:calc(var(--top) + 4px) 20px calc(var(--ctrl) + 10px);}
+  .app.has-ctx .cin{padding-top:calc(var(--top) + 36px);}
   .ctop{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;}
   .chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:999px;background:var(--glass);font-size:12.5px;font-weight:600;color:var(--fg);white-space:nowrap;}
   .chip.mut{color:var(--mut);}
@@ -530,16 +678,16 @@
   .chip.e{background:rgba(255,255,255,.85);color:#000;}
   .idx{font-size:12.5px;color:var(--mut);font-variant-numeric:tabular-nums;font-weight:600;}
   .mid{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;}
-  .cvw{position:relative;align-self:center;width:var(--cv,min(76vw,300px));height:var(--cv,min(76vw,300px));border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);background:#222;flex:none;}
+  .cvw{position:relative;align-self:center;width:var(--cv,min(76vw,300px));height:var(--cv,min(76vw,300px));border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);background:#222 center/cover no-repeat;flex:none;}
   .cvw img{width:100%;height:100%;object-fit:cover;display:block;}
   .pind{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.28);opacity:0;transition:opacity .2s;pointer-events:none;}
   .pind i{width:64px;height:64px;display:block;padding:15px;border-radius:50%;background:rgba(0,0,0,.45);}
   .card.paused .pind{opacity:1;}
   .eq{position:absolute;right:10px;bottom:10px;display:flex;gap:3px;align-items:flex-end;height:18px;opacity:0;transition:opacity .2s;}
   .card.playing .eq{opacity:1;}
-  .eq span{width:3px;background:#fff;border-radius:2px;animation:eq 1s ease-in-out infinite;}
+  .eq span{width:3px;height:100%;background:#fff;border-radius:2px;transform-origin:50% 100%;animation:eq 1s ease-in-out infinite;}
   .eq span:nth-child(2){animation-delay:-.4s}.eq span:nth-child(3){animation-delay:-.7s}.eq span:nth-child(4){animation-delay:-.2s}
-  @keyframes eq{0%,100%{height:30%}50%{height:100%}}
+  @keyframes eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
   .info{margin-top:18px;flex:none;display:flex;align-items:flex-end;gap:12px;height:var(--ih,auto);}
   .itext{flex:1;min-width:0;display:flex;flex-direction:column;}
   .eyebrow{font-size:11.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -556,7 +704,8 @@
   .rbtn:active{transform:scale(.92);}
   .art{font-size:17px;font-weight:600;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .rel{font-size:13.5px;color:var(--mut);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .rel .lbl{color:var(--fg);text-decoration:underline;text-decoration-color:rgba(255,255,255,.3);text-underline-offset:3px;}
+  .rel .lbl,.rel .relb{color:var(--fg);text-decoration:underline;text-decoration-color:rgba(255,255,255,.3);text-underline-offset:3px;}
+  .rel .relb{color:var(--mut);}
   .chips{display:flex;gap:6px;flex-wrap:wrap;overflow:hidden;margin-top:11px;height:26px;}
   .chips .chip:empty{display:none;}
   .end .cin{justify-content:center;align-items:center;text-align:center;gap:14px;}
@@ -610,7 +759,8 @@
   .gh{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;padding:10px 16px 7px;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);background:var(--bg);border-bottom:1px solid var(--line);}
   .gh span{font-variant-numeric:tabular-nums;}
   .lempty{padding:34px 24px;text-align:center;color:var(--mut);font-size:15px;line-height:1.4;}
-  .row{display:flex;align-items:center;gap:12px;padding:9px 10px 9px 16px;position:relative;}
+  .row{display:flex;align-items:center;gap:12px;padding:9px 10px 9px 16px;position:relative;-webkit-touch-callout:none;}
+  .row img{pointer-events:none;}
   .row:active{background:rgba(255,255,255,.05);}
   .row.cur{background:rgba(46,168,255,.12);}
   .row .rc{width:52px;height:52px;border-radius:8px;flex:none;background:#222;object-fit:cover;}
@@ -631,7 +781,7 @@
 
   /* mini reproductor (lista) */
   .mini{position:absolute;left:8px;right:8px;bottom:calc(var(--sb) + 8px);z-index:30;display:none;align-items:center;gap:10px;padding:8px 8px 8px 8px;border-radius:16px;
-    background:rgba(38,38,44,.92);-webkit-backdrop-filter:saturate(1.6) blur(20px);backdrop-filter:saturate(1.6) blur(20px);box-shadow:0 10px 30px rgba(0,0,0,.5);overflow:hidden;}
+    background:rgba(40,40,46,.98);box-shadow:0 10px 30px rgba(0,0,0,.5);overflow:hidden;}
   .app[data-view=list].has-cur .mini{display:flex;}
   .mini img{width:46px;height:46px;border-radius:9px;object-fit:cover;background:#333;flex:none;}
   .mini .mm{flex:1;min-width:0;}
@@ -641,6 +791,32 @@
   .mini .mb i{width:24px;height:24px;display:block;}
   .mini .mb.on{color:var(--gold);}
   .mini .mprog{position:absolute;left:0;bottom:0;height:2.5px;background:var(--fg);width:0;}
+
+  /* etiqueta de dónde estás (feed) */
+  .ctx{position:absolute;left:50%;top:calc(var(--st) + 56px);transform:translateX(-50%);z-index:29;display:none;align-items:center;max-width:calc(100% - 40px);height:28px;padding:0 13px;border-radius:999px;background:rgba(0,0,0,.45);font-size:12.5px;font-weight:700;color:var(--fg);white-space:nowrap;}
+  .ctx .ct{overflow:hidden;text-overflow:ellipsis;}
+  .app.has-ctx[data-view=feed] .ctx{display:flex;}
+
+  /* cabecera de artista / sello / release / búsqueda (lista) */
+  .shead{display:flex;align-items:center;gap:12px;padding:4px 0 2px;}
+  .scov{width:76px;height:76px;border-radius:10px;object-fit:cover;background:#222;flex:none;}
+  .stx{flex:1;min-width:0;}
+  .skind{font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-bottom:2px;}
+  .stitle{font-size:26px;font-weight:850;letter-spacing:-.02em;line-height:1.1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .ssub{font-size:13.5px;color:var(--mut);margin-top:4px;}
+  .fol{height:38px;padding:0 16px;font-size:14px;flex:none;}
+  .schips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
+  .schips .tag{color:var(--fg);}
+  .dhead .dcount:first-child{margin-top:0;}
+
+  /* buscador */
+  .srch{position:absolute;inset:0;z-index:45;background:var(--bg);display:none;flex-direction:column;padding:calc(var(--st) + 8px) 12px 0;}
+  .srch.on{display:flex;}
+  .srow{display:flex;align-items:center;gap:8px;margin:0;}
+  .sq{flex:1;min-width:0;height:42px;border-radius:12px;background:var(--glass);border:1px solid transparent;color:var(--fg);font:inherit;font-size:16px;padding:0 12px;outline:none;-webkit-appearance:none;appearance:none;}
+  .sq:focus{border-color:var(--acc);}
+  .sgo{height:42px;padding:0 14px;font-size:14.5px;border-radius:12px;}
+  .sbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 4px calc(var(--sb) + 20px);user-select:text;-webkit-user-select:text;}
 
   /* hojas */
   .shade{position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s;}
@@ -709,27 +885,25 @@
   `;
 
   /* ───────────────────────── app ───────────────────────── */
+  let cur = null; // fuente que se está viendo (sección, artista, búsqueda…)
+  let stack = []; // navegación: la última es `cur`
+  let liveSrc = null; // la lista de la página con la que arrancó Safari
   let tracks = [];
+  let byId = new Map();
+  let days = [];
+  let dayStat = new Map();
   let deck = [];
+  let deckPos = new Map();
   let hiddenAtLoad = new Set();
   let forced = new Set();
+  function newPages(first) { return { first: first || 1, last: first || 1, hasMore: false, next: null, loading: null, autoEmpty: 0, dayLoads: 0 }; }
+  let pages = newPages();
   let activeIdx = 0;
   let current = null; // track cargado en el audio
   let wantPlay = false;
   let view = 'feed';
   let isOpen = false;
-  let host, root, app, feedEl, listEl, ctrlEl, miniEl, toastsEl, shadeEl;
-  // Dos elementos de audio: uno suena y el otro va cargando la siguiente canción (ver "reproducción").
-  const mkAudio = () => {
-    const a = new Audio();
-    a.preload = 'auto';
-    try { a.setAttribute('playsinline', ''); a.setAttribute('webkit-playsinline', ''); } catch (e) {}
-    return a;
-  };
-  const players = [mkAudio(), mkAudio()];
-  let audio = players[0]; // el que suena
-  const spare = () => (audio === players[0] ? players[1] : players[0]);
-  const pl = { broken: false, unlocked: false, swaps: 0, primes: 0, fails: 0, t0: 0, mode: '', info: null, last: null, stat: { pre: { n: 0, ms: 0 }, cold: { n: 0, ms: 0 } } };
+  let host, root, app, feedEl, listEl, ctrlEl, miniEl, toastsEl, shadeEl, ctxEl, srchEl;
 
   const vpMeta = (() => {
     let m = $('meta[name="viewport"]');
@@ -762,6 +936,8 @@
     const sr = host.attachShadow({ mode: 'open' });
     // aislar teclas para que no disparen los atajos de Soundeo
     ['keydown', 'keypress', 'keyup'].forEach((ev) => host.addEventListener(ev, (e) => e.stopPropagation()));
+    // al cerrar el teclado Safari puede dejar la página desplazada: devolverla a su sitio
+    host.addEventListener('focusout', () => setTimeout(() => { if (isOpen) window.scrollTo(0, 0); }, 60));
 
     sr.innerHTML = `<style>${APP_CSS}</style>
       <div class="root">
@@ -769,11 +945,14 @@
           <div class="feed"></div>
           <div class="list"></div>
           <div class="topbar">
+            <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
             <button class="pill dlleft" title="Descargas restantes hoy">${i('dl')}<span>–</span></button>
+            <button class="ibtn bsearch" aria-label="Buscar">${i('search')}</button>
             <button class="ibtn bset" aria-label="Ajustes">${i('sliders')}</button>
           </div>
+          <button class="ctx"><span class="ct"></span><small class="cs"></small></button>
           <div class="controls">
             <div class="prog"><span class="tc">0:00</span><div class="bar"><div class="buf"></div><div class="fill"></div><div class="knob"></div></div><span class="td">0:00</span></div>
             <div class="btns">
@@ -793,9 +972,17 @@
             <button class="mb mexp" aria-label="Abrir en feed">${i('up')}</button>
             <div class="mprog"></div>
           </div>
+          <div class="srch">
+            <form class="srow" action="#">
+              <button type="button" class="ibtn sback" aria-label="Cerrar">${i('chev')}</button>
+              <input class="sq" type="search" enterkeyhint="search" placeholder="Artista, título o sello" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <button type="submit" class="btn pri sgo">Buscar</button>
+            </form>
+            <div class="sbody"></div>
+          </div>
           <div class="toasts"></div>
           <div class="shade"></div>
-          <div class="sheet s-settings"><div class="sh"><h2>Ajustes</h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div><div class="sf"><button class="btn bsave">Guardar como míos</button><button class="btn pri bapply">Aplicar filtros</button></div></div>
+          <div class="sheet s-settings"><div class="sh"><h2>Ajustes</h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div><div class="sf"></div></div>
           <div class="sheet s-action"><div class="sh"><h2></h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div></div>
         </div>
         <button class="fab">${i('feed')}<span>Feed</span></button>
@@ -808,11 +995,16 @@
     miniEl = $('.mini', sr);
     toastsEl = $('.toasts', sr);
     shadeEl = $('.shade', sr);
+    ctxEl = $('.ctx', sr);
+    srchEl = $('.srch', sr);
 
     // eventos fijos
     $$('.seg button', sr).forEach((b) => b.addEventListener('click', () => setView(b.dataset.v)));
+    $('.bnav', sr).addEventListener('click', () => (stack.length > 1 ? goBack() : openMenu()));
+    $('.bsearch', sr).addEventListener('click', () => openSearch());
     $('.bset', sr).addEventListener('click', () => openSettings());
     $('.dlleft', sr).addEventListener('click', () => toast(dlLeftText()));
+    ctxEl.addEventListener('click', () => setView('list'));
     $('.bplay', sr).addEventListener('click', togglePlay);
     $('.bnext', sr).addEventListener('click', () => step(1, true));
     $('.bprev', sr).addEventListener('click', () => step(-1, true));
@@ -820,20 +1012,23 @@
     $('.f30', sr).addEventListener('click', () => seekBy(30));
     $('.mplay', sr).addEventListener('click', togglePlay);
     $('.mnext', sr).addEventListener('click', () => step(1, true));
-    $('.mexp', sr).addEventListener('click', () => setView('feed'));
+    $('.mexp', sr).addEventListener('click', showCurrentInFeed);
     $('.mfav', sr).addEventListener('click', () => current && toggleFav(current));
-    $('.mm', sr).addEventListener('click', () => setView('feed'));
+    $('.mm', sr).addEventListener('click', showCurrentInFeed);
     $('.fab', sr).addEventListener('click', () => {
       SS.del('closed');
-      if (tracks.length) openApp(prefs.startView);
-      else location.href = buildListUrl(defFilters) + '#sx=' + prefs.startView;
+      if (cur) openApp(prefs.startView);
+      else location.href = startUrl() + '#sx=' + prefs.startView;
     });
     shadeEl.addEventListener('click', closeSheets);
     $$('.sclose', sr).forEach((b) => b.addEventListener('click', closeSheets));
+    $('.sback', sr).addEventListener('click', closeSearch);
+    $('.srow', sr).addEventListener('submit', (e) => { e.preventDefault(); doSearch($('.sq', srchEl).value); });
     setupBar($('.bar', sr));
+    setupListEvents();
     feedEl.addEventListener('scroll', onFeedScroll, { passive: true });
     setupGestures();
-    app.addEventListener('click', unlockSpare, true);
+    app.addEventListener('click', unlockPlayers, true);
     let rzT = 0;
     const onResize = () => {
       clearTimeout(rzT);
@@ -845,6 +1040,11 @@
     };
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
+    window.addEventListener('popstate', (e) => {
+      if (!isOpen) return;
+      const d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
+      if (d < stack.length - 1) popTo(d);
+    });
   }
 
   /* ───────────── abrir / cerrar / vistas ───────────── */
@@ -855,7 +1055,7 @@
     root.classList.add('open');
     $$('audio, video').forEach((m) => { try { m.pause(); } catch (e) {} });
     window.scrollTo(0, 0);
-    setView(v || view, true);
+    setView(v || view);
     updateCounters();
   }
   function closeApp() {
@@ -867,32 +1067,84 @@
     audio.pause();
     wantPlay = false;
   }
-  // Deja la lista en el día de la canción actual y, si algo suena, centrada en ella.
-  function prepList() {
-    const k = current ? listDays().indexOf(current.day) : -1;
-    if (k >= 0 && k !== listDay) listDay = k;
-    renderList();
-    const r = current && listRowById(current.id);
-    const playing = current && (!audio.paused || audio.currentTime > 0);
-    if (r && playing) listEl.scrollTop = Math.max(0, r.offsetTop - (listEl.clientHeight - r.offsetHeight) / 2);
-    else listEl.scrollTop = 0;
-  }
-  function setView(v) {
+  function switchView(v) {
     view = v === 'list' ? 'list' : 'feed';
     app.dataset.view = view;
     $$('.seg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
     SS.set('view', view);
+  }
+  function setView(v) {
+    // si sales del feed a mitad de un deslizamiento, la tarjeta a la que ibas ya cuenta
+    if (view === 'feed' && v === 'list' && isOpen) {
+      clearTimeout(settleT);
+      const t = deck[activeIdx];
+      if (t && current && current.id !== t.id) load(t, wantPlay);
+    }
+    switchView(v);
     if (view === 'feed') {
       feedJump(activeIdx);
+      paintProgress();
       requestAnimationFrame(() => {
         layoutCards();
         feedJump(activeIdx);
         onActive(activeIdx, true);
+        // en el feed suena lo que se ve
+        const t = deck[activeIdx];
+        if (isOpen && t && current && current.id !== t.id) onSettle();
       });
     } else {
       prepList();
+      paintProgress();
     }
     syncHash();
+  }
+  // Deja la lista en el día de la canción actual y, si algo suena, centrada en ella.
+  function prepList() {
+    if (cur && cur.mode === 'day' && current && byId.has(current.id)) {
+      const k = days.indexOf(current.day);
+      if (k >= 0 && k !== listDay) { listDay = k; listDirty = true; }
+    }
+    const fresh = listDirty;
+    if (listDirty) renderList();
+    const r = current && listRowById(current.id);
+    const playing = current && (!audio.paused || audio.currentTime > 0);
+    if (r && playing) listEl.scrollTop = Math.max(0, r.offsetTop - (listEl.clientHeight - r.offsetHeight) / 2);
+    else if (fresh) listEl.scrollTop = 0;
+  }
+  // Desde el mini reproductor: enseñar en el feed lo que está sonando.
+  function showCurrentInFeed() {
+    if (!current) { setView('feed'); return; }
+    if (byId.has(current.id)) {
+      if (!deckPos.has(current.id)) { forced.add(current.id); buildDeck(); renderFeed(); }
+      activeIdx = deckPos.get(current.id) || 0;
+      setView('feed');
+      return;
+    }
+    // la que suena es de otra lista: volver a ella si está en el camino de vuelta
+    for (let d = stack.length - 2; d >= 0; d--) {
+      const s = stack[d];
+      if (!s.tracks.some((t) => t.id === current.id)) continue;
+      s.at = current.id;
+      s.view = 'feed';
+      s.forced.add(current.id);
+      try {
+        if (history.state && history.state.sx === stack.length - 1) { history.go(d - (stack.length - 1)); return; }
+      } catch (e) {}
+      popTo(d);
+      return;
+    }
+    setView('feed');
+  }
+  let hashT = 0;
+  function syncHash() {
+    clearTimeout(hashT);
+    hashT = setTimeout(() => {
+      try {
+        const h = 'sx=' + view + (deck[activeIdx] ? '&id=' + deck[activeIdx].id : '');
+        history.replaceState(history.state, '', location.pathname + location.search + '#' + h);
+      } catch (e) {}
+      saveNav();
+    }, 350);
   }
 
   /* ───────────── gestos ───────────── */
@@ -902,6 +1154,7 @@
     let g = null;
     const start = (e) => {
       g = null;
+      scrollLock = null; // el dedo manda sobre cualquier desplazamiento en curso
       if (e.touches.length !== 1 || view !== 'feed' || (e.target.closest && e.target.closest('.bar'))) return;
       const t = e.touches[0];
       const inFeed = e.currentTarget === feedEl;
@@ -956,48 +1209,412 @@
       const dy = t.clientY - q.y;
       if (dy < -30 && Math.abs(dy) > Math.abs(dx) * 1.3) {
         if (e.cancelable) e.preventDefault();
-        setView('feed');
+        showCurrentInFeed();
       } else if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         if (e.cancelable) e.preventDefault();
         step(dx < 0 ? 1 : -1, true);
       }
     }, { passive: false });
   }
-  function syncHash() {
+
+  /* ───────────── fuentes: abrir, volver, cargar ───────────── */
+  function mkSrc(d) {
+    return Object.assign({
+      kind: 'page', key: null, title: '', url: '', filters: null, canFilter: false, hide: false, loose: false, xhr: false, refId: '', query: '',
+      tracks: [], hidden: new Set(), forced: new Set(), pages: newPages(), activeIdx: 0, listDay: 0, listScroll: 0, view: null, mode: 'all',
+      loaded: false, loading: null, error: '', msg: '', count: null, follow: null, release: null, cut: 0, live: false, at: null, probe: null,
+    }, d);
+  }
+  const setHidden = (set) => { hiddenAtLoad = set; if (cur) cur.hidden = set; };
+  const setForced = (set) => { forced = set; if (cur) cur.forced = set; };
+  function stash() {
+    if (!cur) return;
+    cur.tracks = tracks;
+    cur.hidden = hiddenAtLoad;
+    cur.forced = forced;
+    cur.activeIdx = activeIdx;
+    cur.listDay = listDay;
+    cur.view = view;
+    if (listEl && view === 'list') cur.listScroll = listEl.scrollTop;
+    cur.at = deck[activeIdx] ? deck[activeIdx].id : null;
+  }
+  // Pone una fuente en pantalla (feed + lista).
+  function adopt(s) {
+    cur = s;
+    tracks = s.tracks;
+    hiddenAtLoad = s.hidden;
+    forced = s.forced;
+    pages = s.pages;
+    listDay = s.listDay || 0;
+    indexTracks();
+    buildDeck();
+    const at = s.at != null ? deckPos.get(s.at) : null;
+    activeIdx = at != null ? at : Math.max(0, Math.min(s.activeIdx || 0, deck.length));
+    renderFeed();
+    listDirty = true;
+    paintChrome();
+    if (view === 'list') {
+      renderList();
+      listEl.scrollTop = s.listScroll || 0;
+    } else {
+      feedJump(activeIdx);
+      requestAnimationFrame(() => {
+        if (cur !== s) return;
+        layoutCards();
+        feedJump(activeIdx);
+        onActive(activeIdx, true);
+        // en el feed suena lo que se ve
+        if (isOpen && s.loaded && deck[activeIdx]) onSettle();
+      });
+    }
+    syncHash();
+  }
+  function paintChrome() {
+    if (!root) return;
+    const deep = stack.length > 1;
+    const nav = $('.bnav', root);
+    nav.innerHTML = i(deep ? 'chev' : 'menu');
+    nav.setAttribute('aria-label', deep ? 'Atrás' : 'Secciones');
+    // en el feed, una etiqueta con dónde estás (salvo en la sección de siempre)
+    const show = !!cur && (deep || cur.key !== startListKey() || cur.kind !== 'section');
+    app.classList.toggle('has-ctx', show);
+    $('.ct', ctxEl).textContent = cur ? (kindName(cur) ? kindName(cur) + ' · ' : '') + cur.title : '';
+    $('.cs', ctxEl).textContent = '';
+  }
+  const kindName = (s) => ({ artist: 'Artista', label: 'Sello', release: 'Release', search: 'Búsqueda', genre: 'Género', similar: 'También descargan' }[s.kind] || '');
+  const sameUrl = (a, b) => { try { const x = new URL(a, location.href); const y = new URL(b, location.href); return x.pathname === y.pathname && normFilters(filtersFromUrl(x.href)) === normFilters(filtersFromUrl(y.href)) && (x.searchParams.get('q') || '') === (y.searchParams.get('q') || '') && (x.searchParams.get('page') || '1') === (y.searchParams.get('page') || '1'); } catch (e) { return false; } };
+  function openSource(d, opts) {
+    opts = opts || {};
+    closeSheets();
+    closeSearch();
+    if (cur && !opts.root && !opts.replace && cur.url && sameUrl(cur.url, d.url)) {
+      if (opts.view && opts.view !== view) setView(opts.view);
+      return cur;
+    }
+    stash();
+    // la lista con la que arrancó la página ya está cargada: no hace falta pedirla otra vez
+    let s = opts.root && liveSrc && liveSrc.loaded && sameUrl(liveSrc.url, d.url) ? liveSrc : mkSrc(d);
+    if (opts.root) stack = [s];
+    else if (opts.replace) stack[stack.length - 1] = s;
+    else {
+      stack.push(s);
+      try { history.pushState({ sx: stack.length - 1 }, '', location.href); } catch (e) {}
+    }
+    if (opts.view) switchView(opts.view);
+    if (!s.loaded) ensureLoaded(s);
+    adopt(s);
+    return s;
+  }
+  function goBack() {
+    if (stack.length <= 1) return;
     try {
-      const h = 'sx=' + view + (deck[activeIdx] ? '&id=' + deck[activeIdx].id : '');
-      history.replaceState(history.state, '', location.pathname + location.search + '#' + h);
+      if (history.state && history.state.sx === stack.length - 1) { history.back(); return; }
     } catch (e) {}
+    popTo(stack.length - 2);
+  }
+  function popTo(depth) {
+    if (depth < 0 || depth >= stack.length - 1) return;
+    closeSheets();
+    closeSearch();
+    stack.length = depth + 1;
+    const s = stack[depth];
+    if (s.view) switchView(s.view);
+    if (!s.loaded) ensureLoaded(s);
+    adopt(s);
+  }
+  // Soundeo contesta con una página o, en sus bloques "perezosos", con JSON que lleva el HTML dentro.
+  function docFromText(txt) {
+    const t = String(txt || '').trim();
+    if (t[0] === '{' || t[0] === '[') {
+      try {
+        let best = '';
+        const walk = (v) => {
+          if (typeof v === 'string') { if (v.length > best.length && /data-track|trackitem/.test(v)) best = v; }
+          else if (v && typeof v === 'object') Object.keys(v).forEach((k) => walk(v[k]));
+        };
+        walk(JSON.parse(t));
+        return new DOMParser().parseFromString('<section class="content"><div class="left">' + best + '</div></section>', 'text/html');
+      } catch (e) {}
+    }
+    return new DOMParser().parseFromString(txt, 'text/html');
+  }
+  function fetchDoc(url, xhr) {
+    const init = { credentials: 'include' };
+    if (xhr) init.headers = { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/html, */*; q=0.01' };
+    return fetch(url, init).then((r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text().then((html) => ({ doc: docFromText(html), finalUrl: r.url || url }));
+    });
+  }
+  function ensureLoaded(s) {
+    if (s.loaded) return Promise.resolve(s);
+    if (s.loading) return s.loading;
+    s.error = '';
+    s.loading = fetchDoc(s.url, s.xhr)
+      .then(({ doc, finalUrl }) => { applyDoc(s, doc, finalUrl); s.loaded = true; })
+      .catch((e) => { s.error = short(e && e.message, 90) || 'error'; })
+      .then(() => { s.loading = null; if (s === cur) adopt(s); return s; });
+    return s.loading;
+  }
+  // Páginas que no hacen caso a los filtros por URL: el género se filtra aquí.
+  function localFilter(s, list) {
+    if (!(s.loose && s.filters && s.filters.genres && s.filters.genres.length)) return list;
+    const set = new Set(s.filters.genres.map(String));
+    const kept = list.filter((t) => !t.genreId || set.has(t.genreId));
+    s.cut += list.length - kept.length;
+    return kept;
+  }
+  function listModeFor(list) {
+    const ds = new Set(list.map((t) => t.day));
+    return list.some((t) => parseDay(t.day)) && list.length / ds.size >= 12 ? 'day' : 'all';
+  }
+  function applyDoc(s, doc, finalUrl) {
+    const info = readDoc(doc, s.url);
+    if (s.key === 'top100') info.tracks.forEach((t, k) => { t.rank = k + 1; });
+    s.cut = 0;
+    s.tracks = localFilter(s, info.tracks);
+    const first = s.pages ? s.pages.first : 1;
+    s.pages = newPages(first);
+    s.pages.next = info.next;
+    s.pages.hasMore = !!info.next && info.tracks.length > 0;
+    s.count = info.count;
+    s.follow = info.follow;
+    s.release = info.release;
+    s.msg = info.msg;
+    if (info.title && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
+    s.mode = listModeFor(s.tracks);
+    s.hidden = s.hide ? hiddenFor(s.tracks) : new Set();
+    s.forced = new Set();
+    if (s.at) s.forced.add(s.at);
+    s.probe = null;
+    if (!info.tracks.length) {
+      // sin tracks: guardar cómo es la página (para el diagnóstico) y avisar si Soundeo ha mandado a otro sitio
+      s.probe = pageShape(doc);
+      try {
+        const fp = new URL(finalUrl).pathname;
+        if (fp !== new URL(s.url).pathname) s.msg = s.msg || 'Soundeo ha redirigido a ' + fp;
+      } catch (e) {}
+    }
+  }
+  // Cambiar los filtros de la fuente actual (desde Ajustes).
+  function refilter(f) {
+    const s = cur;
+    f = cleanFilters(f);
+    let d;
+    if (s.loose) d = sectionDesc(s.key, f);
+    else if (s.kind === 'genre' && f.genres.length === 1) d = Object.assign(genreDesc(f.genres[0]), { filters: f, url: buildListUrl(f) });
+    else d = sectionDesc(String(f.available) === '0' ? 'all' : 'avail', f);
+    openSource(d, stack.length > 1 ? { replace: true } : { root: true });
+  }
+  function openSection(key) {
+    if (stack.length === 1 && cur && cur.key === key && cur.kind === 'section' && !cur.error) { toast('Ya estás en ' + sectionByKey(key).name); return; }
+    openSource(sectionDesc(key), { root: true });
+  }
+  function saveNav() {
+    try {
+      if (!cur) return;
+      SS.set('nav', stack.map((s) => ({
+        kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr,
+        refId: s.refId, query: s.query, live: s.live, view: s === cur ? view : s.view, at: s === cur ? (deck[activeIdx] ? deck[activeIdx].id : null) : s.at,
+      })));
+    } catch (e) {}
+  }
+  function openMenu() {
+    const here = stack.length === 1 && cur && cur.kind === 'section' ? cur.key : '';
+    const opts = SECTIONS.map((sec) => ({ label: sec.name, hint: sec.hint, icon: sec.icon, small: here === sec.key ? '●' : '', fn: () => openSection(sec.key) }));
+    opts.push({ label: 'Buscar', hint: 'Como el buscador de la web', icon: 'search', fn: () => openSearch() });
+    actionSheet('Secciones', '', '', opts);
+  }
+
+  /* ───────────── buscador ───────────── */
+  function openSearch(prefill) {
+    closeSheets();
+    srchEl.classList.add('on');
+    const inp = $('.sq', srchEl);
+    inp.value = typeof prefill === 'string' ? prefill : cur && cur.kind === 'search' ? cur.query : '';
+    paintRecent();
+    try { inp.focus(); inp.select(); } catch (e) {}
+  }
+  function closeSearch() {
+    if (!srchEl || !srchEl.classList.contains('on')) return;
+    srchEl.classList.remove('on');
+    try { $('.sq', srchEl).blur(); } catch (e) {}
+  }
+  function paintRecent() {
+    const body = $('.sbody', srchEl);
+    const rec = LS.get('searches', []);
+    body.textContent = '';
+    if (!rec.length) {
+      body.appendChild(el('<div class="note" style="padding:18px 4px">Busca por artista, título o sello. Los resultados salen como lista de tracks.</div>'));
+      return;
+    }
+    body.appendChild(el('<div class="sec">Recientes</div>'));
+    rec.forEach((q) => {
+      const b = el(`<button class="opt">${i('search')}<span>${esc(q)}</span></button>`);
+      b.addEventListener('click', () => doSearch(q));
+      body.appendChild(b);
+    });
+    const clr = el('<button class="opt" style="color:var(--mut)"><span>Borrar recientes</span></button>');
+    clr.addEventListener('click', () => { LS.set('searches', []); paintRecent(); });
+    body.appendChild(clr);
+  }
+  function doSearch(q) {
+    q = clean(q);
+    if (q.length < 2) { toast('Escribe al menos 2 letras'); return; }
+    const rec = LS.get('searches', []).filter((x) => x.toLowerCase() !== q.toLowerCase());
+    rec.unshift(q);
+    LS.set('searches', rec.slice(0, 12));
+    closeSearch();
+    openSource(searchDesc(q), { view: 'list', replace: !!(cur && cur.kind === 'search' && stack.length > 1) });
+  }
+
+  /* ───────────── ir a artista / sello / release / género ───────────── */
+  function openArtist(t) {
+    const go = (list) => {
+      if (!list || !list.length) {
+        // sin ficha de artista: buscar por nombre
+        const name = clean(String(t.artist || '').split(/,| & | feat\.? | ft\.? | vs\.? /i)[0]);
+        if (name) openSource(searchDesc(name), { view: 'list' });
+        else toast('No encuentro el artista');
+        return;
+      }
+      if (list.length === 1) { openSource(artistDesc(list[0][0], list[0][1]), { view: 'list' }); return; }
+      actionSheet('Artistas', t.name, '', list.map((a) => ({ label: a[1], icon: 'user', fn: () => openSource(artistDesc(a[0], a[1]), { view: 'list' }) })));
+    };
+    const m = metaCache[t.id];
+    if (m && m.ar) { go(m.ar); return; }
+    const s0 = cur;
+    toast('Buscando el artista…');
+    getMeta(t, true, true).then((mm) => { if (cur === s0) go(mm && mm.ar); });
+  }
+  const openLabel = (t) => { if (t.labelId) openSource(labelDesc(t.labelId, t.label), { view: 'list' }); };
+  const openRelease = (t) => { if (t.releaseUrl) openSource(releaseDesc(t.releaseUrl, t.release), { view: 'list' }); };
+  const openGenre = (t) => { if (t.genreId) openSource(genreDesc(t.genreId, t.genre), { view: 'list' }); };
+  // "Show what members also download" de la página del track
+  const openSimilar = (t) => openSource({ kind: 'similar', title: t.name, xhr: true, url: location.origin + '/tracks/recommend/' + encodeURIComponent(t.id) }, { view: 'list' });
+
+  /* ───────────── seguir a un artista o sello ───────────── */
+  function toggleFollow(s) {
+    const f = s.follow;
+    if (!f || f.busy) return;
+    f.busy = true;
+    const want = !f.on;
+    const act = { type: 'follow', what: f.type, id: f.id, before: f.on };
+    lastAction = act;
+    startCapture('follow ' + f.type + ' ' + f.id);
+    siteRequest('/' + f.type + 's/favor/' + encodeURIComponent(f.id), 'POST')
+      .then(({ r }) => {
+        act.response = trimResp(r);
+        if (!r || r.success === false || r.error) throw new Error(r && (r.message || r.error) ? plainMsg(r.message || r.error).slice(0, 110) : 'Soundeo no lo ha aceptado');
+        f.on = typeof r.result === 'string' ? /^(favor|follow)/i.test(r.result) : typeof r.favored === 'boolean' ? r.favored : want;
+        act.after = f.on;
+        applyHeader(r);
+        toast(f.on ? 'Siguiendo a ' + s.title : 'Has dejado de seguir a ' + s.title);
+      })
+      .catch((e) => toast('No se ha podido: ' + short(e && e.message, 90), 'Diagnóstico', diagnostics))
+      .then(() => { f.busy = false; if (s === cur) paintFollow(); });
+  }
+  function paintFollow() {
+    const b = listEl && $('.fol', listEl);
+    if (!b || !cur || !cur.follow) return;
+    b.textContent = cur.follow.on ? 'Siguiendo' : 'Seguir';
+    b.classList.toggle('pri', !cur.follow.on);
   }
 
   /* ───────────── mazo (feed) ───────────── */
+  function indexTracks() {
+    byId = new Map();
+    days = [];
+    dayStat = new Map();
+    tracks.forEach((t, k) => {
+      byId.set(t.id, t);
+      let st = dayStat.get(t.day);
+      if (!st) { st = { n: 0, pos: new Map() }; dayStat.set(t.day, st); days.push(t.day); }
+      st.n++;
+      st.pos.set(t.id, st.n);
+      t._pos = k + 1;
+    });
+  }
   function buildDeck() {
     deck = tracks.filter((t) => !hiddenAtLoad.has(t.id) || forced.has(t.id));
+    deckPos = new Map();
+    deck.forEach((t, k) => deckPos.set(t.id, k));
+  }
+  // El feed tiene un hueco por canción, pero solo las cercanas a la activa tienen contenido.
+  const HYDRATE = 2;
+  const KEEP = 4;
+  let filled = new Set();
+  let playingCard = null;
+  function phCard(t) {
+    const c = document.createElement('section');
+    c.className = 'card ph';
+    c.dataset.id = t.id;
+    return c;
   }
   function renderFeed() {
+    if (!feedEl) return;
     const frag = document.createDocumentFragment();
-    deck.forEach((t, idx) => frag.appendChild(cardFor(t, idx)));
+    deck.forEach((t) => frag.appendChild(phCard(t)));
     frag.appendChild(endCard());
     feedEl.textContent = '';
     feedEl.appendChild(frag);
-    updateCardCounters();
+    filled = new Set();
+    playingCard = null;
+    hydrateAround(activeIdx);
+    paintPlayer();
+    // al rehacer el feed su scroll vuelve a 0: recolocarlo ya, antes de que nadie lea la posición
+    if (view === 'feed') feedJump(activeIdx);
     requestAnimationFrame(layoutCards);
   }
-  function cardFor(t, idx) {
+  function hydrateAround(idx) {
+    const a = Math.max(0, idx - HYDRATE);
+    const z = Math.min(deck.length - 1, idx + HYDRATE);
+    for (let k = a; k <= z; k++) {
+      const c = feedEl.children[k];
+      if (c && !filled.has(c)) { fillCard(c, deck[k]); filled.add(c); }
+    }
+    if (filled.size > 2 * KEEP + 2) {
+      filled.forEach((c) => {
+        const k = deckPos.get(c.dataset.id);
+        if (k == null || Math.abs(k - idx) > KEEP) {
+          c.textContent = '';
+          c.className = 'card ph';
+          filled.delete(c);
+          if (playingCard === c) playingCard = null;
+        }
+      });
+    }
+  }
+  // Posición de la canción dentro de su día (o de la lista) y el total.
+  function counterText(t) {
+    if (t.rank) return '#' + t.rank;
+    if (cur.mode === 'day') {
+      const st = dayStat.get(t.day);
+      if (!st) return '';
+      const k = days.indexOf(t.day);
+      const complete = k < days.length - 1 || !pages.hasMore;
+      // día sin terminar de cargar: "12/…" mientras llega; si es enorme y se deja de pedir, solo la posición
+      return st.pos.get(t.id) + (complete ? '/' + st.n : pages.dayLoads >= 8 ? '' : '/…');
+    }
+    const total = cur.count || (!pages.hasMore ? tracks.length : 0);
+    return (t._pos || '') + (total ? '/' + total : '');
+  }
+  function fillCard(c, t) {
     const meta = metaCache[t.id];
-    const eyebrow = [String(t.dayLabel || '').split(' · ')[0], t.genre].filter(Boolean).map(esc).join(' · ');
-    const c = el(`<section class="card paused" data-id="${esc(t.id)}">
-      <div class="bg"></div>
+    const where = [parseDay(t.day) ? dayShort(t.day) : '', t.genre].filter(Boolean).map(esc).join(' · ');
+    const small = t.cover ? ' style="background-image:url(&quot;' + esc(t.cover) + '&quot;)"' : '';
+    c.className = 'card paused';
+    c.innerHTML = `<canvas class="bg" width="32" height="56"></canvas>
       <div class="cin">
         <div class="mid">
-          <div class="cvw"><img alt="" decoding="async"><div class="pind">${i('play')}</div><div class="eq"><span></span><span></span><span></span><span></span></div></div>
+          <div class="cvw"${small}><img alt="" decoding="async"><div class="pind">${i('play')}</div><div class="eq"><span></span><span></span><span></span><span></span></div></div>
           <div class="info">
             <div class="itext">
-              <div class="eyebrow"><span class="ix">${idx + 1}/${deck.length}</span>${eyebrow ? ' · <b>' + eyebrow + '</b>' : ''}</div>
+              <div class="eyebrow"><span class="ix">${esc(counterText(t))}</span>${where ? ' · <b>' + where + '</b>' : ''}</div>
               <div class="ttl">${esc(t.name)}</div>
               <div class="mix">${esc(t.mix)}</div>
               <div class="art">${esc(t.artist)}</div>
-              <div class="rel">${esc(t.release)}${t.label ? ' · <span class="lbl">' + esc(t.label) + '</span>' : ''}</div>
+              <div class="rel">${t.release ? '<span class="relb">' + esc(t.release) + '</span>' : ''}${t.release && t.label ? ' · ' : ''}${t.label ? '<span class="lbl">' + esc(t.label) + '</span>' : ''}</div>
               <div class="chips"><span class="chip key">${metaChipKey(meta)}</span><span class="chip bpmc">${metaChipBpm(meta)}</span>${t.duration ? `<span class="chip mut">${esc(t.duration)}</span>` : ''}${t.explicit ? '<span class="chip e">E</span>' : ''}${t.date ? `<span class="chip mut">${esc(t.date)}</span>` : ''}</div>
             </div>
             <div class="rail">
@@ -1007,11 +1624,11 @@
             </div>
           </div>
         </div>
-      </div>
-    </section>`);
+      </div>`;
     const img = $('img', c);
+    img.onerror = () => { if (t.cover && img.src !== t.cover) img.src = t.cover; };
     img.src = bigCover(t.cover);
-    img.onerror = () => { if (img.src !== t.cover) img.src = t.cover; };
+    paintBg($('.bg', c), t.cover);
     $('.cvw', c).addEventListener('click', togglePlay);
     $('.fav', c).addEventListener('click', () => toggleFav(t));
     const dlb = $('.dl', c);
@@ -1019,10 +1636,42 @@
     const vb = $('.vote', c);
     if (vb) vb.addEventListener('click', () => vote(t));
     $('.more', c).addEventListener('click', () => moreSheet(t));
+    $('.art', c).addEventListener('click', () => openArtist(t));
+    const rb = $('.relb', c);
+    if (rb) rb.addEventListener('click', () => openRelease(t));
     const lbl = $('.lbl', c);
-    if (lbl) lbl.addEventListener('click', () => moreSheet(t));
+    if (lbl) lbl.addEventListener('click', () => (t.labelId ? openLabel(t) : moreSheet(t)));
     paintFav(c, t);
-    return c;
+    if (current && current.id === t.id) paintPlayer();
+  }
+  // Fondo difuminado: la portada pequeña reducida a unos pocos píxeles y estirada (sin filtros de desenfoque).
+  const bgTmp = document.createElement('canvas');
+  bgTmp.width = 8;
+  bgTmp.height = 14;
+  function paintBg(cv, url) {
+    if (!cv || !url) return;
+    const im = new Image();
+    im.decoding = 'async';
+    im.onload = () => {
+      try {
+        const w = im.naturalWidth;
+        const h = im.naturalHeight;
+        const side = Math.min(w, h * (8 / 14));
+        const sw = side;
+        const sh = side * (14 / 8);
+        const a = bgTmp.getContext('2d');
+        a.imageSmoothingEnabled = true;
+        a.imageSmoothingQuality = 'high';
+        a.clearRect(0, 0, 8, 14);
+        a.drawImage(im, (w - sw) / 2, (h - sh) / 2, sw, sh, 0, 0, 8, 14);
+        const x = cv.getContext('2d');
+        x.imageSmoothingEnabled = true;
+        x.imageSmoothingQuality = 'high';
+        x.drawImage(bgTmp, 0, 0, 8, 14, 0, 0, cv.width, cv.height);
+        cv.classList.add('on');
+      } catch (e) {}
+    };
+    im.src = url;
   }
   function dlButtonHtml(t) {
     if (t.downloads.length) {
@@ -1040,12 +1689,13 @@
   }
   function layoutCards() {
     if (!feedEl || !feedEl.clientHeight || !root) return;
-    const c = feedEl.querySelector('.card:not(.end)');
+    const c = feedEl.querySelector('.card:not(.end):not(.ph)');
     if (!c) return;
     const mid = $('.mid', c);
     const info = $('.info', c);
     const ttl = $('.ttl', c);
     // alto del bloque de texto con un título de 2 líneas, para que la portada no salte entre tarjetas
+    root.style.removeProperty('--ih');
     info.style.height = 'auto';
     ttl.style.minHeight = '2.24em';
     const ih = info.offsetHeight;
@@ -1056,150 +1706,216 @@
     const cv = Math.max(110, Math.min(feedEl.clientWidth - 40, 440, avail));
     root.style.setProperty('--cv', Math.floor(cv) + 'px');
   }
+  function siteMsg(s) {
+    let m = s.msg || '';
+    if (/not following any/i.test(m)) m = 'Todavía no sigues a ningún artista ni sello. Entra en un artista o un sello y pulsa «Seguir».';
+    if (!m) m = s.kind === 'search' ? 'Sin resultados para ' + s.title + '.' : 'Soundeo no ha devuelto ningún track aquí.';
+    if (s.cut) m += ' (' + s.cut + ' fuera de tus géneros)';
+    return m;
+  }
   function endCard() {
+    const s = cur || {};
     const hiddenN = tracks.length - deck.length;
     const more = pages.hasMore;
+    let h;
+    let p;
+    if (s.loading && !tracks.length) { h = 'Cargando…'; p = s.title || ''; }
+    else if (s.error) { h = 'No se ha podido cargar'; p = s.error; }
+    else if (!tracks.length) { h = 'Aquí no hay nada'; p = siteMsg(s); }
+    else if (more) { h = 'Cargando más…'; p = 'Trayendo más tracks de Soundeo.'; }
+    else if (deck.length) { h = 'Has llegado al final'; p = 'No hay más tracks en esta lista.'; }
+    else { h = 'Nada nuevo aquí'; p = 'Ya has escuchado todo lo de esta lista.'; }
     const c = el(`<section class="card end"><div class="cin">
-      <h3>${more ? 'Cargando más…' : deck.length ? 'Has llegado al final' : 'Nada nuevo aquí'}</h3>
-      <p>${more ? 'Trayendo más tracks de Soundeo.' : deck.length ? 'No hay más tracks con estos filtros.' : 'Ya has escuchado todo lo de estos filtros.'}</p>
-      ${more ? '<button class="btn pri bnp">Cargar más</button>' : ''}
+      <h3>${esc(h)}</h3>
+      <p>${esc(p)}</p>
+      ${more && tracks.length ? '<button class="btn pri bnp">Cargar más</button>' : ''}
+      ${s.error ? '<button class="btn pri bretry">Reintentar</button>' : ''}
       ${hiddenN > 0 ? '<button class="btn bsh">Mostrar también las ' + hiddenN + ' escuchadas</button>' : ''}
-      <button class="btn btop">Volver al principio</button>
+      ${deck.length ? '<button class="btn btop">Volver al principio</button>' : ''}
+      ${!tracks.length && !s.loading && s.url ? '<button class="btn bweb">Abrir en la web</button>' : ''}
+      ${stack.length > 1 ? '<button class="btn bbk">Volver</button>' : ''}
     </div></section>`);
-    const bnp = $('.bnp', c);
-    if (bnp) bnp.addEventListener('click', () => { pages.autoEmpty = 0; loadMore(); });
-    const bsh = $('.bsh', c);
-    if (bsh) bsh.addEventListener('click', () => { prefs.skipHeard = false; savePrefs(); hiddenAtLoad = new Set(); rebuild(deck[activeIdx - 1] || deck[0]); toast('Mostrando todas'); });
-    $('.btop', c).addEventListener('click', () => goTo(0, { instant: true }));
+    const on = (sel, fn) => { const b = $(sel, c); if (b) b.addEventListener('click', fn); };
+    on('.bnp', () => { pages.autoEmpty = 0; loadMore(); });
+    on('.bretry', () => { ensureLoaded(s); adopt(s); });
+    on('.bsh', () => { setHidden(new Set()); rebuild(deck[activeIdx - 1] || deck[0]); toast('Mostrando también las escuchadas'); });
+    on('.btop', () => goTo(0, { instant: true }));
+    on('.bweb', () => { closeApp(); location.href = s.url; });
+    on('.bbk', goBack);
     return c;
   }
   function updateCardCounters() {
-    if (!feedEl) return;
-    const total = deck.length + (pages.hasMore ? '+' : '');
-    $$('.card .ix', feedEl).forEach((x, k) => { x.textContent = (k + 1) + '/' + total; });
+    filled.forEach((c) => {
+      const t = byId.get(c.dataset.id);
+      const x = c.querySelector('.ix');
+      if (t && x) x.textContent = counterText(t);
+    });
   }
 
   /* ───────────── más páginas de Soundeo (sin recargar) ───────────── */
-  const pages = { first: 1, last: 1, hasMore: false, loading: null, autoEmpty: 0 };
-  function nextPageHref(doc) {
-    const act = $('.pagination li.active', doc);
-    const sib = act && act.nextElementSibling;
-    const a = sib && $('a[href]', sib);
-    return a ? absHref(a) : null;
-  }
-  function urlForPage(n) {
-    const u = new URL(location.href);
+  function pageUrlFor(url, n) {
+    const u = new URL(url, location.href);
     u.hash = '';
     if (n <= 1) u.searchParams.delete('page');
     else u.searchParams.set('page', String(n));
     return u.toString();
   }
+  function prevPageUrl() {
+    if (!cur || !cur.live || pages.first <= 1) return null;
+    return pageUrlFor(location.href, pages.first - 1);
+  }
   function loadMore() {
-    if (pages.loading) return pages.loading;
-    if (!pages.hasMore) return Promise.resolve([]);
-    const n = pages.last + 1;
-    pages.loading = fetch(urlForPage(n), { credentials: 'include' })
-      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then((html) => {
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const last = tracks[tracks.length - 1];
-        const got = parseTracks(doc, last && last.day);
-        pages.last = n;
-        pages.hasMore = !!nextPageHref(doc) && got.length > 0;
-        const known = new Set(tracks.map((t) => t.id));
-        const fresh = got.filter((t) => t.id && !known.has(t.id));
-        hiddenFor(fresh).forEach((id) => hiddenAtLoad.add(id));
-        tracks = tracks.concat(fresh);
-        onTracksAdded();
+    const s = cur;
+    const pg = s.pages;
+    if (pg.loading) return pg.loading;
+    if (!pg.hasMore) return Promise.resolve([]);
+    const n = pg.last + 1;
+    // manda el enlace "siguiente" de la propia página, salvo que no lleve a la página que toca
+    let url = pg.next;
+    if (url) { const pn = parseInt(paramOf(url, 'page') || '0', 10); if (pn && pn !== n) url = null; }
+    if (!url) url = pageUrlFor(s.url, n);
+    pg.loading = fetchDoc(url, s.xhr)
+      .then(({ doc }) => {
+        const list = s === cur ? tracks : s.tracks;
+        const last = list[list.length - 1];
+        const info = readDoc(doc, url, last && last.day);
+        if (s.key === 'top100') info.tracks.forEach((t, k) => { t.rank = (pg.last - pg.first + 1) * 100 + k + 1; });
+        pg.last = n;
+        pg.next = info.next;
+        pg.hasMore = !!info.next && info.tracks.length > 0;
+        const known = new Set(list.map((t) => t.id));
+        const fresh = localFilter(s, info.tracks).filter((t) => t.id && !known.has(t.id));
+        if (s.hide) hiddenFor(fresh).forEach((id) => s.hidden.add(id));
+        s.tracks = list.concat(fresh);
+        if (s === cur) { tracks = s.tracks; onTracksAdded(fresh); }
         return fresh;
       })
-      .catch((e) => { toast('No se pudo cargar más: ' + short(e && e.message, 60)); return []; })
-      .finally(() => { pages.loading = null; });
-    return pages.loading;
+      .catch((e) => { if (s === cur) toast('No se pudo cargar más: ' + short(e && e.message, 60)); return []; })
+      .then((res) => {
+        pg.loading = null;
+        if (s === cur) {
+          // seguir si hace falta: completar el día del contador o tener más tarjetas por delante
+          const t = deck[activeIdx];
+          if (t) wantDay(t);
+          if (view === 'feed' && activeIdx >= deck.length - 4) maybeLoadMore();
+          if (!pg.loading) refreshEnd();
+        }
+        return res;
+      });
+    return pg.loading;
   }
-  function onTracksAdded() {
+  function refreshEnd() {
+    const end = feedEl && feedEl.lastElementChild;
+    if (end && end.classList.contains('end')) end.replaceWith(endCard());
+  }
+  function onTracksAdded(fresh) {
     const before = deck.length;
+    const daysBefore = days.length;
+    indexTracks();
     buildDeck();
     const end = feedEl.lastElementChild;
-    deck.slice(before).forEach((t, k) => feedEl.insertBefore(cardFor(t, before + k), end));
+    const frag = document.createDocumentFragment();
+    deck.slice(before).forEach((t) => frag.appendChild(phCard(t)));
+    feedEl.insertBefore(frag, end);
     end.replaceWith(endCard());
+    hydrateAround(activeIdx);
     updateCardCounters();
-    requestAnimationFrame(layoutCards);
     if (deck.length > before) pages.autoEmpty = 0;
     else pages.autoEmpty++;
-    renderList(true);
-    if (view === 'feed') onActive(activeIdx, true);
+    if (days.length > daysBefore) pages.dayLoads = 0;
+    listTracksAdded(fresh);
   }
   function maybeLoadMore() {
     // carga automática cerca del final; si varias páginas seguidas no traen nada nuevo, espera a un toque
     if (pages.hasMore && !pages.loading && pages.autoEmpty < 3) loadMore();
   }
+  // Para que el contador pueda decir "12/175", hace falta tener el día entero (puede seguir en más páginas).
+  const bootAt = performance.now();
+  let dayT = 0;
+  function wantDay(t) {
+    if (!cur || cur.mode !== 'day' || !pages.hasMore || pages.loading) return;
+    if (days.indexOf(t.day) !== days.length - 1 || pages.dayLoads >= 8) return;
+    const s = cur;
+    clearTimeout(dayT);
+    // al arrancar, primero la canción y la portada; el resto del día puede esperar un momento
+    dayT = setTimeout(() => {
+      if (s !== cur || pages.loading || !pages.hasMore) return;
+      pages.dayLoads++;
+      loadMore();
+    }, Math.max(400, 1500 - (performance.now() - bootAt)));
+  }
   function goPage(delta) {
-    const u = pageUrl(delta);
+    const u = delta < 0 ? prevPageUrl() : null;
     if (!u) return;
     SS.set('autoplay', wantPlay ? 1 : 0);
     location.href = u.split('#')[0] + '#sx=' + view;
   }
   function rebuild(keep) {
     buildDeck();
-    renderFeed();
-    renderList(true);
-    let idx = keep ? deck.findIndex((t) => t.id === keep.id) : 0;
-    if (idx < 0) idx = 0;
+    let idx = keep ? deckPos.get(keep.id) : 0;
+    if (idx == null) idx = 0;
     activeIdx = idx;
-    if (view === 'feed') requestAnimationFrame(() => { feedJump(activeIdx); onActive(activeIdx, true); });
+    renderFeed();
+    listDirty = true;
+    if (view === 'list') renderList(true);
+    else requestAnimationFrame(() => { feedJump(activeIdx); onActive(activeIdx, true); });
   }
   const cardAt = (idx) => feedEl.children[idx] || null;
+  function cardById(id) {
+    const idx = deckPos.get(id);
+    const c = idx != null ? cardAt(idx) : null;
+    return c && filled.has(c) ? c : null;
+  }
   // el feed es una fila de tarjetas a pantalla completa: la posición es scrollLeft / ancho
   function feedJump(idx, smooth) {
     const x = idx * feedEl.clientWidth;
     if (smooth && feedEl.scrollTo) feedEl.scrollTo({ left: x, behavior: 'smooth' });
     else feedEl.scrollLeft = x;
   }
-  function cardById(id) {
-    const idx = deck.findIndex((t) => t.id === id);
-    return idx >= 0 ? cardAt(idx) : null;
-  }
 
   let scrollRaf = 0;
   let settleT = 0;
+  let scrollLock = null; // destino de un desplazamiento que ha lanzado la app (botones): hasta llegar, manda él
   function onFeedScroll() {
+    // con el feed oculto (lista) su scroll vuelve a 0 y avisa: eso no es el usuario cambiando de canción
+    if (view !== 'feed') return;
     if (!scrollRaf) {
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = 0;
-        const w = feedEl.clientWidth || 1;
+        const w = feedEl.clientWidth;
+        if (view !== 'feed' || !w) return;
         const idx = Math.max(0, Math.min(deck.length, Math.round(feedEl.scrollLeft / w)));
+        if (scrollLock) {
+          if (idx === scrollLock.idx || performance.now() > scrollLock.until) scrollLock = null;
+          else return;
+        }
         if (idx !== activeIdx) onActive(idx, false);
       });
     }
     clearTimeout(settleT);
-    settleT = setTimeout(onSettle, 140);
+    settleT = setTimeout(onSettle, 120);
   }
   function onActive(idx, force) {
     if (idx === activeIdx && !force) return;
     activeIdx = idx;
-    // fondos difuminados solo cerca de la tarjeta activa
-    for (let k = 0; k < feedEl.children.length; k++) {
-      const c = feedEl.children[k];
-      const bg = c.querySelector('.bg');
-      if (!bg) continue;
-      const near = Math.abs(k - idx) <= 1;
-      const t = deck[k];
-      if (near && t && !bg.dataset.set) { bg.style.backgroundImage = 'url("' + bigCover(t.cover).replace(/"/g, '%22') + '")'; bg.dataset.set = '1'; }
-      if (!near && bg.dataset.set) { bg.style.backgroundImage = ''; delete bg.dataset.set; bg.classList.remove('on'); }
-      if (near && bg.dataset.set) bg.classList.add('on');
-    }
+    hydrateAround(idx);
     const t = deck[idx];
     if (t) {
-      [t, deck[idx + 1], deck[idx + 2]].forEach((x) => x && loadMeta(x));
-      SS.set('pos:' + location.pathname + location.search, t.id);
+      loadMeta(t);
+      if (deck[idx + 1]) loadMeta(deck[idx + 1]);
+      if (cur.live) SS.set('pos:' + location.pathname + location.search, t.id);
+      wantDay(t);
     }
     if (idx >= deck.length - 4) maybeLoadMore();
+    // si la canción a la que llegas ya está precargada, que suene sin esperar a que pare el deslizamiento
+    if (t && !force && wantPlay && view === 'feed' && (!current || current.id !== t.id) &&
+        players.some((a) => a !== audio && a._sxId === t.id && a.readyState >= 3 && !a.error)) load(t, true);
     syncHash();
   }
   function onSettle() {
+    if (view !== 'feed') return;
     const t = deck[activeIdx];
-    if (!t) { if (current && !audio.paused) { audio.pause(); } return; }
+    if (!t) { if (current && !audio.paused && deck.length) { audio.pause(); } return; }
     if (!current || current.id !== t.id) load(t, wantPlay);
     else if (wantPlay && audio.paused) audio.play().catch(() => {});
   }
@@ -1209,8 +1925,12 @@
     const t = deck[idx];
     if (t && opts.play) load(t, true); // dentro del gesto del usuario (iOS)
     if (view === 'feed' && feedEl.clientWidth) {
-      feedJump(idx, !opts.instant);
-      if (opts.instant) onActive(idx, true);
+      // la tarjeta de destino cuenta desde ya (así varios toques seguidos se suman); el scroll va detrás
+      const near = !opts.instant && Math.abs(idx - feedEl.scrollLeft / feedEl.clientWidth) <= 1.25;
+      onActive(idx, true);
+      scrollLock = near ? { idx, until: performance.now() + 900 } : null;
+      feedJump(idx, near);
+      if (t && !opts.play && wantPlay) load(t, true);
     } else {
       onActive(idx, true);
       if (t && !opts.play) load(t, false);
@@ -1218,28 +1938,30 @@
     }
   }
   function playListTrack(id, play) {
-    const t = tracks.find((x) => x.id === id);
+    const t = byId.get(id);
     if (!t) return false;
-    if (!deck.some((x) => x.id === id)) { forced.add(id); buildDeck(); renderFeed(); }
-    activeIdx = deck.findIndex((x) => x.id === id);
+    if (!deckPos.has(id)) { forced.add(id); buildDeck(); renderFeed(); }
+    activeIdx = deckPos.get(id);
     load(t, play);
-    onActive(activeIdx, true);
+    hydrateAround(activeIdx);
+    loadMeta(t);
+    syncHash();
     const r = listRowById(id);
-    if (r) r.scrollIntoView({ block: 'nearest' });
+    if (r && r.scrollIntoView) r.scrollIntoView({ block: 'nearest' });
     return true;
   }
   function step(d, userGesture) {
     if (view === 'list' && current && listOrder.includes(current.id)) {
       const k = listOrder.indexOf(current.id) + d;
       if (k >= 0 && k < listOrder.length) { playListTrack(listOrder[k], userGesture ? true : wantPlay); return; }
-      toast(d > 0 ? 'Fin de este día' : 'Es el primero de este día');
+      toast(d > 0 ? 'Fin de la lista' : 'Es el primero de la lista');
       return;
     }
-    const base = current ? deck.findIndex((t) => t.id === current.id) : -1;
-    const from = view === 'feed' ? activeIdx : base >= 0 ? base : activeIdx;
+    const base = current && deckPos.has(current.id) ? deckPos.get(current.id) : -1;
+    const from = view === 'feed' ? activeIdx : base >= 0 ? base : activeIdx - (d > 0 ? 1 : 0);
     const idx = from + d;
     if (idx < 0) {
-      if (pageUrl(-1)) toast('Es el primero de esta página', 'Página anterior', () => goPage(-1));
+      if (prevPageUrl()) toast('Es el primero de esta página', 'Página anterior', () => goPage(-1));
       else toast('Es el primero de la lista');
       return;
     }
@@ -1252,27 +1974,26 @@
   }
   function paintMeta(t) {
     const m = metaCache[t.id];
+    if (!m) return;
     const c = cardById(t.id);
-    if (!c || !m) return;
-    const k = $('.chip.key', c);
-    const b = $('.chip.bpmc', c);
-    if (k) k.innerHTML = metaChipKey(m);
-    if (b) b.innerHTML = metaChipBpm(m);
+    if (c) {
+      const k = $('.chip.key', c);
+      const b = $('.chip.bpmc', c);
+      if (k) k.innerHTML = metaChipKey(m);
+      if (b) b.innerHTML = metaChipBpm(m);
+    }
     const r = listRowById(t.id);
     if (r) {
       const x = $('.rx', r);
-      if (x && !x.dataset.meta) { x.dataset.meta = '1'; x.textContent = metaLine(t); }
+      if (x && !x.dataset.meta && (m.b || m.k)) { x.dataset.meta = '1'; x.textContent = metaLine(t); }
     }
   }
   function refreshCovers() {
     if (!feedEl) return;
-    deck.forEach((t, k) => {
-      const c = cardAt(k);
-      if (!c) return;
-      const img = $('img', c);
+    filled.forEach((c) => {
+      const t = byId.get(c.dataset.id);
+      const img = t && $('img', c);
       if (img) img.src = bigCover(t.cover);
-      const bg = $('.bg', c);
-      if (bg && bg.dataset.set) bg.style.backgroundImage = 'url("' + bigCover(t.cover).replace(/"/g, '%22') + '")';
     });
   }
 
@@ -1280,59 +2001,140 @@
   function metaLine(t) {
     const m = metaCache[t.id];
     const bits = [];
+    if (t.rank) bits.push('#' + t.rank);
     if (m && m.b) bits.push(m.b + ' BPM');
     if (m && m.k) bits.push(camelot(m.k) + ' ' + m.k);
     bits.push(t.genre, t.label, t.duration);
     return bits.filter(Boolean).join(' · ');
   }
-  let listDay = 0; // 0 = el día más reciente cargado
+  let listDay = 0; // 0 = el día más reciente cargado (solo en listas "por días")
   let listOrder = []; // ids en el orden en que se ven en la lista
-  function listDays() {
-    const out = [];
-    tracks.forEach((t) => { if (!out.includes(t.day)) out.push(t.day); });
-    return out;
-  }
-  const dayComplete = (k) => k < listDays().length - 1 || !pages.hasMore;
-  function dayParts(dayTxt) {
-    const m = clean(dayTxt).match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
-    if (!m || MONTHS_EN[m[2].toLowerCase()] == null) return { big: clean(dayTxt) || 'Tracks', sub: '', short: clean(dayTxt) };
-    const d = new Date(+m[3], MONTHS_EN[m[2].toLowerCase()], +m[1]);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((today - d) / 86400000);
-    const short = d.getDate() + ' ' + MONTHS_ES[d.getMonth()];
-    let sub = '';
-    try { sub = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { sub = short; }
-    sub = sub.charAt(0).toUpperCase() + sub.slice(1);
-    return { big: diff === 0 ? 'Hoy' : diff === 1 ? 'Ayer' : short, sub, short };
-  }
+  let listDirty = true;
+  const dayComplete = (k) => k < days.length - 1 || !pages.hasMore;
   async function goListDay(k) {
     if (k < 0) {
-      if (pageNumber() > 1) goPage(-1);
+      if (prevPageUrl()) goPage(-1);
       return;
     }
+    const s = cur;
     let guard = 0;
     // el día k tiene que existir y estar completo (puede seguir en la página siguiente de Soundeo)
-    while ((listDays().length <= k || !dayComplete(k)) && pages.hasMore && guard++ < 8) {
+    while ((days.length <= k || !dayComplete(k)) && pages.hasMore && guard++ < 8 && s === cur) {
       $$('.dold, .bnx', listEl).forEach((x) => { x.disabled = true; x.textContent = 'Cargando…'; });
       await loadMore();
     }
-    const days = listDays();
+    if (s !== cur) return;
     if (k > days.length - 1) k = days.length - 1;
     listDay = Math.max(0, k);
     renderList();
     listEl.scrollTop = 0;
   }
+  function rowHtml(t) {
+    const done = t.siteDownloaded || myDownloads.has(t.id);
+    const fav = isFav(t);
+    const src = coverAt(t.cover, coverSize && +coverSize <= 150 ? coverSize : '110');
+    return `<div class="row${isHeard(t) ? ' heard' : ''}${current && current.id === t.id ? ' cur' : ''}" data-id="${esc(t.id)}">` +
+      `<img class="rc" alt="" loading="lazy" decoding="async" src="${esc(src)}" data-fb="${esc(t.cover)}">` +
+      `<div class="rm"><div class="rt">${esc(t.name)}${t.mix ? ' <small>' + esc(t.mix) + '</small>' : ''}</div><div class="ra">${esc(t.artist)}</div><div class="rx">${esc(metaLine(t))}</div></div>` +
+      `<button class="rb rfav${fav ? ' on' : ''}" aria-label="Guardar"><i>${fav ? ICON.starOn : ICON.star}</i></button>` +
+      (t.downloads.length ? `<button class="rb rdl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>` : t.vote ? `<button class="rb rvote" aria-label="Votar">${i('up')}</button>` : '') +
+      '</div>';
+  }
+  const sourceSub = (s) => {
+    const n = s.count || tracks.length;
+    if (s.kind === 'artist' || s.kind === 'label') return n + (n === 1 ? ' track' : ' tracks');
+    if (s.kind === 'search') return (pages.hasMore ? 'Más de ' : '') + tracks.length + ' resultados';
+    if (s.kind === 'release') {
+      const rows = (s.release && s.release.rows) || [];
+      const pick = (re) => { const r = rows.find((x) => re.test(x[0])); return r ? r[1] : ''; };
+      return [pick(/^label/i), pick(/date|released/i), tracks.length + (tracks.length === 1 ? ' track' : ' tracks')].filter(Boolean).join(' · ');
+    }
+    return tracks.length ? (pages.hasMore ? 'Más de ' : '') + tracks.length + ' tracks' : '';
+  };
+  // "98 tracks · 40 sin escuchar" (en artista, sello… el total ya está en la cabecera)
+  const allCountText = () => {
+    const total = cur.count && cur.count > tracks.length ? cur.count : 0;
+    return (cur.canFilter ? tracks.length + ' tracks · ' : '') + countText(tracks) + (total ? ' · cargados ' + tracks.length + ' de ' + total : '');
+  };
+  function listHead() {
+    const s = cur;
+    const head = el('<div class="lhead"></div>');
+    if (s.canFilter) {
+      const b = el(`<button class="fsum">${i('sliders')}<span><b>${esc(s.title)}</b><small>${esc(describeFilters(s.filters))}${s.cut ? ' · género filtrado aquí' : ''}</small></span></button>`);
+      b.addEventListener('click', () => openSettings());
+      head.appendChild(b);
+      return head;
+    }
+    const sub = sourceSub(s);
+    const h = el(`<div class="shead">${s.release && s.release.cover ? '<img class="scov" alt="">' : ''}<div class="stx">${kindName(s) ? '<div class="skind">' + esc(kindName(s)) + '</div>' : ''}<div class="stitle">${esc(s.title)}</div>${sub ? '<div class="ssub">' + esc(sub) + '</div>' : ''}</div>${s.follow ? '<button class="btn fol"></button>' : ''}</div>`);
+    const cov = $('.scov', h);
+    if (cov) cov.src = s.release.cover;
+    const fol = $('.fol', h);
+    if (fol) fol.addEventListener('click', () => toggleFollow(s));
+    head.appendChild(h);
+    if (s.kind === 'release' && s.release) {
+      const chips = el('<div class="schips"></div>');
+      (s.release.artists || []).slice(0, 4).forEach((a) => {
+        const b = el(`<button class="tag">${esc(a[1])}</button>`);
+        b.addEventListener('click', () => openSource(artistDesc(a[0], a[1]), { view: 'list' }));
+        chips.appendChild(b);
+      });
+      if (s.release.label) {
+        const b = el(`<button class="tag">${esc(s.release.label[1])}</button>`);
+        b.addEventListener('click', () => openSource(labelDesc(s.release.label[0], s.release.label[1]), { view: 'list' }));
+        chips.appendChild(b);
+      }
+      if (chips.children.length) head.appendChild(chips);
+    }
+    if (s.kind === 'search') {
+      const b = el(`<button class="fsum" style="margin-top:10px">${i('search')}<span><b>Cambiar la búsqueda</b></span></button>`);
+      b.addEventListener('click', () => openSearch(s.query));
+      head.appendChild(b);
+    }
+    return head;
+  }
+  function emptyBlock() {
+    const s = cur;
+    const e = el(`<div class="lempty">${s.loading ? 'Cargando…' : s.error ? 'No se ha podido cargar: ' + esc(s.error) : esc(siteMsg(s))}
+      <div class="stack" style="align-items:center">${s.error ? '<button class="btn pri bretry">Reintentar</button>' : ''}${!s.loading && s.url ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
+    const on = (sel, fn) => { const b = $(sel, e); if (b) b.addEventListener('click', fn); };
+    on('.bretry', () => { ensureLoaded(s); adopt(s); });
+    on('.bweb', () => { closeApp(); location.href = s.url; });
+    on('.bfed', () => { closeApp(); location.href = location.origin + '/account/followed/edit'; });
+    return e;
+  }
+  const countText = (all) => {
+    const newN = all.filter((t) => !isHeard(t)).length;
+    return newN + ' sin escuchar';
+  };
   function renderList(keepScroll) {
-    if (!listEl) return;
+    if (!listEl || !cur) return;
+    listDirty = false;
     const st = listEl.scrollTop;
-    const isListPage = /^\/list\/tracks/.test(location.pathname);
-    const title = isListPage ? describeFilters(filtersFromUrl()) : clean(document.title.replace(/»?\s*Soundeo\s*$/i, '')) || 'Soundeo';
-    const days = listDays();
+    const frag = document.createDocumentFragment();
+    frag.appendChild(listHead());
+    listOrder = [];
+    if (!tracks.length) frag.appendChild(emptyBlock());
+    else if (cur.mode === 'day') dayList(frag);
+    else allList(frag);
+    listEl.textContent = '';
+    listEl.appendChild(frag);
+    curRow = null;
+    markCurrentRow();
+    paintFollow();
+    if (keepScroll) listEl.scrollTop = st;
+    // si el día aún no está completo (sigue en la página siguiente de Soundeo), traerlo
+    if (cur.mode === 'day' && tracks.length && !dayComplete(listDay) && isOpen && view === 'list' && !pages.loading) loadMore();
+  }
+  const filterSeg = (onlyNew) => `<div class="seg2 lf"><button data-f="all"${onlyNew ? '' : ' class="on"'}>Todas</button><button data-f="new"${onlyNew ? ' class="on"' : ''}>Sin escuchar</button></div>`;
+  function wireFilter(scope) {
+    $$('.lf button', scope).forEach((x) => x.addEventListener('click', () => { prefs.listFilter = x.dataset.f; savePrefs(); renderList(); }));
+  }
+  // Un día por página (listas con muchos tracks al día): fecha grande, géneros, día anterior / siguiente.
+  function dayList(frag) {
     if (listDay > days.length - 1) listDay = Math.max(0, days.length - 1);
     const day = days[listDay];
     const all = tracks.filter((t) => t.day === day);
-    const newN = all.filter((t) => !isHeard(t)).length;
     const onlyNew = prefs.listFilter === 'new';
     const filtered = onlyNew ? all.filter((t) => !isHeard(t) || (current && current.id === t.id)) : all;
     const gOrder = [];
@@ -1344,26 +2146,20 @@
     const dp = dayParts(day);
     const older = days[listDay + 1];
     const newer = days[listDay - 1];
-    const frag = document.createDocumentFragment();
-    const head = el(`<div class="lhead"><button class="fsum">${i('sliders')}<span><b>${esc(title)}</b><small>Toca para cambiar los filtros</small></span></button></div>`);
-    $('.fsum', head).addEventListener('click', () => openSettings());
-    frag.appendChild(head);
+    const canNewer = !!newer || !!prevPageUrl();
     const dh = el(`<div class="dhead">
       <div class="dnav">
-        <button class="dn dnew"${newer || pageNumber() > 1 ? '' : ' disabled'}>‹ ${newer ? esc(dayParts(newer).short) : 'Más reciente'}</button>
+        <button class="dn dnew"${canNewer ? '' : ' disabled'}>‹ ${newer ? esc(dayParts(newer).short) : 'Más reciente'}</button>
         <button class="dn dold"${older || pages.hasMore ? '' : ' disabled'}>${older ? esc(dayParts(older).short) : 'Día anterior'} ›</button>
       </div>
       <div class="dbig">${esc(dp.big)}</div>
       ${dp.sub ? `<div class="dsub">${esc(dp.sub)}</div>` : ''}
-      <div class="dcount">${all.length}${complete ? '' : '+'} tracks · ${newN} sin escuchar${complete ? '' : ' · cargando el resto…'}</div>
-      <div class="seg2 lf"><button data-f="all">Todas</button><button data-f="new">Sin escuchar</button></div>
+      <div class="dcount">${all.length}${complete ? '' : '…'} tracks · ${countText(all)}${complete ? '' : ' · cargando el resto'}</div>
+      ${filterSeg(onlyNew)}
     </div>`);
     $('.dnew', dh).addEventListener('click', () => goListDay(listDay - 1));
     $('.dold', dh).addEventListener('click', () => goListDay(listDay + 1));
-    $$('.lf button', dh).forEach((x) => {
-      x.classList.toggle('on', x.dataset.f === (onlyNew ? 'new' : 'all'));
-      x.addEventListener('click', () => { prefs.listFilter = x.dataset.f; savePrefs(); renderList(); });
-    });
+    wireFilter(dh);
     frag.appendChild(dh);
     if (!shown.length) {
       const e = el(`<div class="lempty">${all.length ? 'Ya has escuchado todo lo de este día.' : 'No hay tracks este día.'}${onlyNew && all.length ? '<br><button class="btn bshow" style="margin-top:14px">Ver las ' + all.length + '</button>' : ''}</div>`);
@@ -1371,101 +2167,215 @@
       if (bs) bs.addEventListener('click', () => { prefs.listFilter = 'all'; savePrefs(); renderList(); });
       frag.appendChild(e);
     }
+    let html = '';
     let lastGenre = null;
     shown.forEach((t) => {
       if (t.genre !== lastGenre) {
         lastGenre = t.genre;
         const n = shown.filter((x) => x.genre === t.genre).length;
-        frag.appendChild(el(`<div class="gh">${esc(t.genre || 'Otros')} <span>${n}</span></div>`));
+        html += `<div class="gh">${esc(t.genre || 'Otros')} <span>${n}</span></div>`;
       }
-      const done = t.siteDownloaded || myDownloads.has(t.id);
-      const r = el(`<div class="row${isHeard(t) ? ' heard' : ''}" data-id="${esc(t.id)}">
-        <img class="rc" alt="" loading="lazy" decoding="async">
-        <div class="rm"><div class="rt">${esc(t.name)}${t.mix ? ' <small>' + esc(t.mix) + '</small>' : ''}</div><div class="ra">${esc(t.artist)}</div><div class="rx">${esc(metaLine(t))}</div></div>
-        <button class="rb rfav" aria-label="Guardar">${i('star')}</button>
-        ${t.downloads.length ? `<button class="rb rdl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>` : ''}
-      </div>`);
-      const img = $('img', r);
-      img.src = coverAt(t.cover, coverSize && +coverSize <= 150 ? coverSize : '110');
-      img.onerror = () => { if (img.src !== t.cover) img.src = t.cover; };
-      r.addEventListener('click', (e) => {
-        if (e.target.closest('.rb')) return;
-        playFromList(t);
-      });
-      $('.rfav', r).addEventListener('click', () => toggleFav(t));
-      const d = $('.rdl', r);
-      if (d) d.addEventListener('click', () => askDownload(t));
-      paintFav(r, t);
-      frag.appendChild(r);
+      html += rowHtml(t);
     });
+    const rows = el('<div class="rows"></div>');
+    rows.innerHTML = html;
+    frag.appendChild(rows);
     const pager = el(`<div class="pager">
-      <button class="btn bpv"${newer || pageNumber() > 1 ? '' : ' disabled'}>‹ Más reciente</button>
+      <button class="btn bpv"${canNewer ? '' : ' disabled'}>‹ Más reciente</button>
       <button class="btn bnx pri"${older || pages.hasMore ? '' : ' disabled'}>Día anterior ›</button>
     </div>`);
     $('.bpv', pager).addEventListener('click', () => goListDay(listDay - 1));
     $('.bnx', pager).addEventListener('click', () => goListDay(listDay + 1));
     frag.appendChild(pager);
-    listEl.textContent = '';
-    listEl.appendChild(frag);
-    if (keepScroll) listEl.scrollTop = st;
+  }
+  // Lista seguida (artista, sello, release, búsqueda, top…): todo lo cargado, con la fecha como separador.
+  let allLastDay = null;
+  function allRowsHtml(list) {
+    let html = '';
+    list.forEach((t) => {
+      if (parseDay(t.day) && t.day !== allLastDay) {
+        allLastDay = t.day;
+        html += `<div class="gh">${esc(dayParts(t.day).short)}</div>`;
+      }
+      html += rowHtml(t);
+    });
+    return html;
+  }
+  const allShown = (list) => (prefs.listFilter === 'new' ? list.filter((t) => !isHeard(t) || (current && current.id === t.id)) : list);
+  function allList(frag) {
+    const onlyNew = prefs.listFilter === 'new';
+    const shown = allShown(tracks);
+    listOrder = shown.map((t) => t.id);
+    const dh = el(`<div class="dhead">
+      <div class="dcount">${esc(allCountText())}</div>
+      ${filterSeg(onlyNew)}
+    </div>`);
+    wireFilter(dh);
+    frag.appendChild(dh);
+    if (!shown.length) frag.appendChild(el('<div class="lempty">Ya has escuchado todo lo de esta lista.</div>'));
+    allLastDay = null;
+    const rows = el('<div class="rows"></div>');
+    rows.innerHTML = allRowsHtml(shown);
+    frag.appendChild(rows);
+    if (pages.hasMore) {
+      const pager = el('<div class="pager"><button class="btn pri bmore">Cargar más</button></div>');
+      $('.bmore', pager).addEventListener('click', (e) => { e.currentTarget.textContent = 'Cargando…'; loadMore(); });
+      frag.appendChild(pager);
+    }
+  }
+  function listTracksAdded(fresh) {
+    if (view !== 'list' || !isOpen) { listDirty = true; return; }
+    if (cur.mode === 'day') { renderList(true); return; }
+    // lista seguida: añadir al final sin repintar todo
+    const rows = $('.rows', listEl);
+    if (!rows) { renderList(true); return; }
+    const shown = allShown(fresh);
+    listOrder = listOrder.concat(shown.map((t) => t.id));
+    rows.insertAdjacentHTML('beforeend', allRowsHtml(shown));
+    const pager = $('.pager', listEl);
+    if (pager && !pages.hasMore) pager.remove();
+    else if (pager) $('.bmore', pager).textContent = 'Cargar más';
     markCurrentRow();
-    // si el día aún no está completo (sigue en la página siguiente de Soundeo), traerlo
-    if (!complete && isOpen && view === 'list' && !pages.loading) loadMore();
+    updateListCount();
+  }
+  function updateListCount() {
+    if (!listEl || view !== 'list' || !cur) return;
+    const dc = $('.dcount', listEl);
+    if (!dc) return;
+    if (cur.mode === 'day') {
+      const all = tracks.filter((t) => t.day === days[listDay]);
+      const complete = dayComplete(listDay);
+      dc.textContent = all.length + (complete ? '' : '…') + ' tracks · ' + countText(all) + (complete ? '' : ' · cargando el resto');
+    } else {
+      dc.textContent = allCountText();
+      const ss = $('.ssub', listEl);
+      if (ss) ss.textContent = sourceSub(cur);
+    }
   }
   function listRowById(id) {
-    return listEl ? listEl.querySelector('.row[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]') : null;
+    return listEl && id != null ? listEl.querySelector('.row[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]') : null;
   }
   function playFromList(t) {
     if (current && current.id === t.id) { togglePlay(); return; }
-    if (!deck.some((x) => x.id === t.id)) {
-      forced.add(t.id);
-      buildDeck();
-      renderFeed();
-    }
-    const idx = deck.findIndex((x) => x.id === t.id);
-    activeIdx = idx;
-    load(t, true);
-    onActive(idx, true);
+    playListTrack(t.id, true);
   }
+  let curRow = null;
   function markCurrentRow() {
     if (!listEl) return;
-    $$('.row.cur', listEl).forEach((r) => r.classList.remove('cur'));
-    if (current) {
-      const r = listRowById(current.id);
-      if (r) r.classList.add('cur');
-    }
+    if (curRow) curRow.classList.remove('cur');
+    curRow = current ? listRowById(current.id) : null;
+    if (curRow) curRow.classList.add('cur');
+  }
+  // Un solo juego de eventos para todas las filas (toque, botones y pulsación larga).
+  function setupListEvents() {
+    let lp = null;
+    let lpFired = false; // la pulsación larga ya ha abierto el menú: el toque que queda no cuenta
+    const rowOf = (e) => { const r = e.target.closest && e.target.closest('.row'); return r ? { r, t: byId.get(r.dataset.id) } : null; };
+    listEl.addEventListener('click', (e) => {
+      const x = rowOf(e);
+      if (!x || !x.t) return;
+      if (e.target.closest('.rfav')) toggleFav(x.t);
+      else if (e.target.closest('.rdl')) askDownload(x.t);
+      else if (e.target.closest('.rvote')) vote(x.t);
+      else playFromList(x.t);
+    });
+    listEl.addEventListener('touchstart', (e) => {
+      clearTimeout(lp && lp.timer);
+      lp = null;
+      lpFired = false;
+      const x = e.touches.length === 1 ? rowOf(e) : null;
+      if (!x || !x.t || e.target.closest('.rb')) return;
+      const p = e.touches[0];
+      lp = { x: p.clientX, y: p.clientY, timer: setTimeout(() => { lpFired = true; lp = null; moreSheet(x.t); }, 480) };
+    }, { passive: true });
+    const cancel = () => { if (lp) { clearTimeout(lp.timer); lp = null; } };
+    listEl.addEventListener('touchmove', (e) => {
+      if (!lp) return;
+      const p = e.touches[0];
+      if (Math.abs(p.clientX - lp.x) > 8 || Math.abs(p.clientY - lp.y) > 8) cancel();
+    }, { passive: true });
+    listEl.addEventListener('touchend', (e) => {
+      cancel();
+      if (lpFired) { lpFired = false; if (e.cancelable) e.preventDefault(); } // que al soltar no se cierre el menú recién abierto
+    }, { passive: false });
+    listEl.addEventListener('touchcancel', () => { cancel(); lpFired = false; }, { passive: true });
+    // portadas que fallan: probar con la original
+    listEl.addEventListener('error', (e) => {
+      const im = e.target;
+      if (im && im.tagName === 'IMG' && im.dataset.fb) { const fb = im.dataset.fb; delete im.dataset.fb; if (im.src !== fb) im.src = fb; }
+    }, true);
+    // listas seguidas: cargar más al acercarse al final
+    listEl.addEventListener('scroll', () => {
+      if (view !== 'list' || !listEl.clientHeight || !cur || cur.mode === 'day' || !pages.hasMore || pages.loading) return;
+      if (listEl.scrollTop + listEl.clientHeight > listEl.scrollHeight - 900) loadMore();
+    }, { passive: true });
   }
 
   /* ───────────── reproducción ───────────── */
-  // Precarga: mientras suena una canción, el otro <audio> va cargando la siguiente. Al pasar de
-  // canción se intercambian los dos y la nueva empieza sin esperar a la red.
+  // Varios <audio>: uno suena y los demás van cargando las canciones siguientes. Al pasar de canción
+  // se cambia de elemento, y la nueva empieza (y se puede saltar por ella) sin esperar a la red.
+  const POOL = 4; // la que suena + las 2 siguientes + la anterior
+  const mkAudio = () => {
+    const a = new Audio();
+    a.preload = 'auto';
+    try { a.setAttribute('playsinline', ''); a.setAttribute('webkit-playsinline', ''); } catch (e) {}
+    return a;
+  };
+  const players = Array.from({ length: POOL }, mkAudio);
+  let audio = players[0]; // el que suena
+  const pl = {
+    broken: false, unlocked: false, swaps: 0, primes: 0, fails: 0, t0: 0, mode: '', info: null, last: null, prevId: null,
+    stat: { pre: { n: 0, ms: 0 }, cold: { n: 0, ms: 0 } }, seek: { n: 0, ms: 0, inBuf: 0, t0: 0, last: null },
+  };
   const bufSecs = (a) => {
     try { return a.buffered.length ? Math.round(a.buffered.end(a.buffered.length - 1) * 10) / 10 : 0; } catch (e) { return 0; }
   };
-  function nextUp() {
-    if (!current) return null;
-    if (view === 'list' && listOrder.includes(current.id)) {
-      const id = listOrder[listOrder.indexOf(current.id) + 1];
-      return (id && tracks.find((t) => t.id === id)) || null;
+  const isBuffered = (a, sec) => {
+    try { for (let k = 0; k < a.buffered.length; k++) if (sec >= a.buffered.start(k) - 0.2 && sec <= a.buffered.end(k)) return true; } catch (e) {}
+    return false;
+  };
+  // Las n canciones que vienen después de la que suena, según dónde estés (lista o feed).
+  function upcoming(n) {
+    if (!current) return [];
+    if (view === 'list') {
+      const k = listOrder.indexOf(current.id);
+      if (k >= 0) return listOrder.slice(k + 1, k + 1 + n).map((id) => byId.get(id)).filter(Boolean);
     }
-    const k = deck.findIndex((t) => t.id === current.id);
-    return k >= 0 ? deck[k + 1] || null : null;
+    const k = deckPos.has(current.id) ? deckPos.get(current.id) : -1;
+    return k >= 0 ? deck.slice(k + 1, k + 1 + n) : [];
   }
-  function preloadNext() {
-    if (!prefs.preload || pl.broken || document.hidden) return;
-    const n = nextUp();
-    if (!n || !n.preview) return;
-    const sp = spare();
-    if (sp._sxId === n.id) return; // ya está pedida (si dio error no se reintenta: load() hará la carga normal)
-    sp._sxId = n.id;
-    sp._sxAt = performance.now();
-    try { sp.src = n.preview; sp.load(); pl.primes++; } catch (e) { sp._sxId = null; }
+  let aheadT = 0;
+  let aheadAt = 0;
+  function preloadAhead() {
+    clearTimeout(aheadT);
+    aheadAt = performance.now();
+    if (!prefs.preload || pl.broken || document.hidden || !current || !wantPlay) return;
+    const want = upcoming(2).filter((t) => t.preview);
+    const keep = new Set(want.map((t) => t.id));
+    keep.add(current.id);
+    if (pl.prevId) keep.add(pl.prevId);
+    want.forEach((t) => {
+      if (players.some((a) => a._sxId === t.id)) return; // ya está pedida (si dio error no se reintenta: load() hará la carga normal)
+      let a = players.find((x) => x !== audio && !keep.has(x._sxId));
+      if (!a) a = players.find((x) => x !== audio && x._sxId === pl.prevId); // sin hueco: soltar la anterior
+      if (!a) return;
+      a._sxId = t.id;
+      a._sxAt = performance.now();
+      try { a.src = t.preview; a.load(); pl.primes++; } catch (e) { a._sxId = null; }
+    });
   }
-  function unlockSpare() {
-    // iOS solo deja sonar un <audio> que se haya usado dentro de un toque: load() en el primer toque lo desbloquea
+  function unlockPlayers() {
+    // iOS solo deja sonar un <audio> que se haya usado dentro de un toque: load() en el primer toque los desbloquea
     if (pl.unlocked) return;
     pl.unlocked = true;
-    try { spare().load(); } catch (e) {}
+    players.forEach((a) => { if (a !== audio) { try { a.load(); } catch (e) {} } });
+  }
+  function dropPreloads() {
+    players.forEach((a) => {
+      if (a === audio) return;
+      a._sxId = null;
+      try { a.removeAttribute('src'); a.load(); } catch (e) {}
+    });
   }
   function load(t, play) {
     if (!t) return;
@@ -1473,21 +2383,24 @@
     let changed = false;
     if (!current || current.id !== t.id) {
       changed = true;
+      pl.prevId = current ? current.id : null;
       current = t;
-      if (!t.preview) { toast('Este track no tiene preview'); }
-      const sp = spare();
-      if (prefs.preload && !pl.broken && !document.hidden && t.preview && sp._sxId === t.id && !sp.error) {
-        // ya estaba cargada en el otro elemento: intercambiar
+      seekTarget = null;
+      if (!t.preview && play) toast('Este track no tiene preview');
+      const pre = prefs.preload && !pl.broken && !document.hidden && t.preview ? players.find((a) => a !== audio && a._sxId === t.id && !a.error) : null;
+      if (pre) {
+        // ya estaba cargada en otro elemento: pasar a ese
         swapped = audio;
         pl.mode = 'pre';
-        pl.info = { ready: sp.readyState, buf: bufSecs(sp), lead: Math.round(performance.now() - (sp._sxAt || performance.now())) };
+        pl.info = { ready: pre.readyState, buf: bufSecs(pre), lead: Math.round(performance.now() - (pre._sxAt || performance.now())) };
         try { swapped.pause(); } catch (e) {}
-        audio = sp; // el anterior se queda con su canción: si vuelves atrás enseguida, también es instantáneo
+        audio = pre;
         try { if (audio.currentTime > 0) audio.currentTime = 0; } catch (e) {}
         pl.swaps++;
       } else {
         pl.mode = 'cold';
         pl.info = null;
+        players.forEach((a) => { if (a !== audio && a._sxId === t.id) a._sxId = null; });
         audio._sxId = t.id;
         audio.src = t.preview || '';
         try { audio.load(); } catch (e) {}
@@ -1499,6 +2412,9 @@
       markCurrentRow();
       updateMini();
       loadMeta(t);
+      // las siguientes: enseguida si esta ya estaba cargada; si no, cuando arranque (o al poco)
+      clearTimeout(aheadT);
+      aheadT = setTimeout(preloadAhead, swapped ? 80 : 1200);
     }
     if (play) {
       wantPlay = true;
@@ -1513,9 +2429,8 @@
           pl.fails++;
           pl.mode = 'cold';
           pl.info = null;
-          a._sxId = null;
-          try { a.removeAttribute('src'); a.load(); } catch (e) {}
           audio = swapped;
+          dropPreloads();
           audio._sxId = t.id;
           audio.src = t.preview || '';
           try { audio.load(); } catch (e) {}
@@ -1539,23 +2454,41 @@
     if (audio.paused) { wantPlay = true; audio.play().catch(() => {}); }
     else { wantPlay = false; audio.pause(); }
   }
-  function seekBy(s) {
-    if (!current || !isFinite(audio.duration)) return;
-    audio.currentTime = Math.max(0, Math.min(audio.duration - 0.5, audio.currentTime + s));
+  // Saltos: la barra se mueve al instante y el audio va detrás.
+  let seekTarget = null;
+  let seekT = 0;
+  function seekTo(sec, commit) {
+    if (!current) return;
+    const d = audio.duration;
+    if (!isFinite(d) || d <= 0) return;
+    sec = Math.max(0, Math.min(d - 0.3, sec));
+    seekTarget = sec;
+    paintProgress();
+    if (commit === false) return;
+    pl.seek.t0 = performance.now();
+    pl.seek.wasBuf = isBuffered(audio, sec);
+    try { audio.currentTime = sec; } catch (e) {}
+    clearTimeout(seekT);
+    seekT = setTimeout(() => { seekTarget = null; paintProgress(); }, 8000);
   }
+  function seekBy(s) {
+    if (!current) return;
+    seekTo((seekTarget != null ? seekTarget : audio.currentTime) + s);
+  }
+  let lastPlaying = null;
   function paintPlayer() {
     const playing = !audio.paused && !audio.ended;
-    const bp = root && $('.bplay', root);
-    if (bp) bp.innerHTML = i(playing ? 'pause' : 'play');
-    const mp = root && $('.mplay', root);
-    if (mp) mp.innerHTML = i(playing ? 'pause' : 'play');
+    if (root && lastPlaying !== playing) {
+      lastPlaying = playing;
+      const ic = i(playing ? 'pause' : 'play');
+      $('.bplay', root).innerHTML = ic;
+      $('.mplay', root).innerHTML = ic;
+    }
     if (feedEl) {
-      $$('.card.playing', feedEl).forEach((c) => c.classList.remove('playing'));
-      $$('.card:not(.end)', feedEl).forEach((c) => c.classList.add('paused'));
-      if (current) {
-        const c = cardById(current.id);
-        if (c) { c.classList.toggle('playing', playing); c.classList.toggle('paused', !playing); }
-      }
+      const c = current ? cardById(current.id) : null;
+      if (playingCard && playingCard !== c) { playingCard.classList.remove('playing'); playingCard.classList.add('paused'); }
+      playingCard = c;
+      if (c) { c.classList.toggle('playing', playing); c.classList.toggle('paused', !playing); }
     }
     try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch (e) {}
   }
@@ -1570,36 +2503,38 @@
     paintFav(miniEl, current);
   }
   let lastProgPaint = 0;
+  let progEls = null;
   function paintProgress() {
-    const d = audio.duration;
-    const c = audio.currentTime;
-    const pct = isFinite(d) && d > 0 ? (c / d) * 100 : 0;
     if (!root) return;
-    $('.fill', ctrlEl).style.width = pct + '%';
-    $('.knob', ctrlEl).style.left = pct + '%';
-    $('.tc', ctrlEl).textContent = fmtTime(c);
-    $('.td', ctrlEl).textContent = isFinite(d) ? fmtTime(d) : '0:00';
-    $('.mprog', miniEl).style.width = pct + '%';
-    try {
-      if (audio.buffered.length && isFinite(d) && d > 0) $('.buf', ctrlEl).style.width = (audio.buffered.end(audio.buffered.length - 1) / d) * 100 + '%';
-    } catch (e) {}
+    if (!progEls) progEls = { fill: $('.fill', ctrlEl), knob: $('.knob', ctrlEl), tc: $('.tc', ctrlEl), td: $('.td', ctrlEl), buf: $('.buf', ctrlEl), mp: $('.mprog', miniEl) };
+    const d = audio.duration;
+    const c = seekTarget != null ? seekTarget : audio.currentTime;
+    const pct = isFinite(d) && d > 0 ? (c / d) * 100 : 0;
+    if (view === 'feed') {
+      progEls.fill.style.width = pct + '%';
+      progEls.knob.style.left = pct + '%';
+      progEls.tc.textContent = fmtTime(c);
+      progEls.td.textContent = isFinite(d) ? fmtTime(d) : '0:00';
+      progEls.buf.style.width = (isFinite(d) && d > 0 ? Math.min(100, (bufSecs(audio) / d) * 100) : 0) + '%';
+    } else {
+      progEls.mp.style.width = pct + '%';
+    }
   }
   function setupBar(bar) {
     let dragging = false;
-    const seekTo = (x) => {
+    const at = (x) => {
       const r = bar.getBoundingClientRect();
       const p = Math.max(0, Math.min(1, (x - r.left) / r.width));
-      if (isFinite(audio.duration)) audio.currentTime = p * audio.duration;
-      paintProgress();
+      return isFinite(audio.duration) ? p * audio.duration : 0;
     };
-    bar.addEventListener('pointerdown', (e) => { dragging = true; try { bar.setPointerCapture(e.pointerId); } catch (x) {} seekTo(e.clientX); });
-    bar.addEventListener('pointermove', (e) => { if (dragging) seekTo(e.clientX); });
-    const end = () => { dragging = false; };
-    bar.addEventListener('pointerup', end);
-    bar.addEventListener('pointercancel', end);
+    // mientras arrastras solo se mueve la barra; el salto de verdad se hace al soltar
+    bar.addEventListener('pointerdown', (e) => { dragging = true; try { bar.setPointerCapture(e.pointerId); } catch (x) {} seekTo(at(e.clientX), false); });
+    bar.addEventListener('pointermove', (e) => { if (dragging) seekTo(at(e.clientX), false); });
+    bar.addEventListener('pointerup', (e) => { if (dragging) { dragging = false; seekTo(at(e.clientX)); } });
+    bar.addEventListener('pointercancel', () => { dragging = false; seekTarget = null; paintProgress(); });
   }
 
-  // los eventos solo cuentan si vienen del elemento que está sonando (el otro está precargando)
+  // los eventos solo cuentan si vienen del elemento que está sonando (los demás están precargando)
   const onAudio = (ev, fn) => players.forEach((a) => a.addEventListener(ev, (e) => { if (a === audio) fn(e); }));
   onAudio('play', paintPlayer);
   onAudio('playing', () => {
@@ -1613,26 +2548,40 @@
       if (st) { st.n++; st.ms += ms; }
       pl.last = Object.assign({ mode: pl.mode, ms }, pl.info || {});
     }
+    if (performance.now() - aheadAt > 1500) { clearTimeout(aheadT); aheadT = setTimeout(preloadAhead, 250); }
   });
   onAudio('waiting', () => app && app.classList.add('spin'));
+  onAudio('canplay', () => app && app.classList.remove('spin'));
   onAudio('pause', paintPlayer);
   onAudio('loadedmetadata', paintProgress);
+  onAudio('seeked', () => {
+    if (pl.seek.t0) {
+      const ms = Math.round(performance.now() - pl.seek.t0);
+      pl.seek.t0 = 0;
+      pl.seek.n++;
+      pl.seek.ms += ms;
+      if (pl.seek.wasBuf) pl.seek.inBuf++;
+      pl.seek.last = { ms, buffered: !!pl.seek.wasBuf };
+    }
+    if (seekTarget != null && Math.abs(audio.currentTime - seekTarget) < 1.5) { seekTarget = null; clearTimeout(seekT); }
+    paintProgress();
+  });
   onAudio('timeupdate', () => {
     const now = performance.now();
-    if (now - lastProgPaint > 200) { lastProgPaint = now; paintProgress(); }
-    if (current && audio.currentTime >= 0.5) markHeard(current.id);
-    if (wantPlay && audio.currentTime >= 1) preloadNext();
+    if (now - lastProgPaint > 240) { lastProgPaint = now; paintProgress(); }
+    if (current && !audio.paused && audio.currentTime >= HEARD_AFTER && !heard.has(current.id)) markHeard(current.id);
+    if (wantPlay && now - aheadAt > 2500) preloadAhead();
   });
   onAudio('ended', () => {
     paintPlayer();
     if (!prefs.autoNext) { wantPlay = false; return; }
-    const idx = current ? deck.findIndex((t) => t.id === current.id) : activeIdx;
     if (view === 'list' && current && listOrder.includes(current.id)) {
       const k = listOrder.indexOf(current.id) + 1;
       if (k < listOrder.length) playListTrack(listOrder[k], true);
       return;
     }
-    if (idx >= 0 && idx + 1 < deck.length) goTo(idx + 1, { play: true });
+    const idx = current && deckPos.has(current.id) ? deckPos.get(current.id) : activeIdx;
+    if (idx + 1 < deck.length) goTo(idx + 1, { play: true });
     else if (view === 'feed') goTo(deck.length);
   });
   onAudio('error', () => {
@@ -1668,17 +2617,25 @@
     h('previoustrack', () => step(-1, false));
     h('seekbackward', () => seekBy(-15));
     h('seekforward', () => seekBy(30));
-    h('seekto', (d) => { if (d && d.seekTime != null) audio.currentTime = d.seekTime; });
+    h('seekto', (d) => { if (d && d.seekTime != null) seekTo(d.seekTime); });
   }
 
-  /* ───────────── favoritos / descargas / votos (usa los botones originales de Soundeo) ───────────── */
-  const origFav = (t) => (t.el && $('button.favorites', t.el)) || $('button.favorites[data-track-id="' + t.id + '"]');
+  /* ───────────── favoritos / descargas / votos (mismas peticiones que hace la web de Soundeo) ───────────── */
+  // botón de favorito de la página original (si el track está en ella), para que la web quede igual
+  const origFav = (t) => (/^\d+$/.test(t.id) ? $('button.favorites[data-track-id="' + t.id + '"]') : null);
   const favPending = new Map(); // id -> estado esperado mientras Soundeo responde
+  const favKnown = new Map(); // id -> último estado confirmado (el mismo track puede estar en varias listas)
   const isFav = (t) => {
     if (favPending.has(t.id)) return favPending.get(t.id);
-    const b = origFav(t);
-    return !!(b && b.classList.contains('favored'));
+    if (favKnown.has(t.id)) return favKnown.get(t.id);
+    return !!t.fav;
   };
+  function setFavKnown(id, on, t) {
+    favKnown.set(id, !!on);
+    if (t) t.fav = !!on;
+    const b = origFav({ id });
+    if (b) b.classList.toggle('favored', !!on);
+  }
 
   // Registro de peticiones de Soundeo (favoritos/descargas/votos) para confirmar acciones y para el diagnóstico.
   const netLog = [];
@@ -1774,25 +2731,14 @@
         let dd = '';
         try { dd = JSON.stringify(d); } catch (x) {}
         logCap('event', { t: e.type, d: short(dd, 160) });
-        if (/favor/.test(e.type)) setTimeout(() => tracks.forEach((t) => repaintFav(t.id)), 60);
+        if (/favor/.test(e.type)) setTimeout(() => { filled.forEach((c) => repaintFav(c.dataset.id)); listDirty = true; }, 60);
       });
       jq(document).on('ajaxSend', (e, x, s) => logCap('jq-ajax', { m: s && s.type, u: short(s && s.url, 160), d: short(s && s.data, 160) }));
       jq(document).on('ajaxError', (e, x, s, err) => logCap('jq-ajax-error', { u: short(s && s.url, 160), s: x && x.status, err: short(err, 80) }));
     } catch (e) {}
   }
-  // Soundeo escucha los clics en document (delegados). Por si su código comprueba que el botón es visible,
-  // se muestra la página original solo durante el clic (síncrono: no llega a pintarse).
-  function clickOriginal(node, label) {
-    startCapture(label || 'click');
-    const html = document.documentElement;
-    const wasOpen = html.classList.contains('sx-open');
-    if (wasOpen) html.classList.remove('sx-open');
-    try { node.click(); } catch (e) { logCap('click-error', { m: short(e && e.message, 200) }); }
-    finally { if (wasOpen) html.classList.add('sx-open'); }
-  }
   let lastAction = null;
   const favCount = () => { const s = $('#span-favorites'); return s ? clean(s.textContent) : null; };
-  const looksLikeError = (txt) => /error|fail|denied|forbidden|not\s*logged|login|premium|limit|exceed/i.test(txt || '') && !/"?success"?\s*:\s*(true|1)/i.test(txt || '');
   function paintFav(scope, t) {
     const on = isFav(t);
     scope.querySelectorAll('.fav, .rfav, .mfav').forEach((b) => {
@@ -1804,7 +2750,7 @@
     });
   }
   function repaintFav(id) {
-    const t = tracks.find((x) => x.id === id);
+    const t = byId.get(id) || (current && current.id === id ? current : null);
     if (!t) return;
     const c = cardById(id);
     if (c) paintFav(c, t);
@@ -1871,7 +2817,6 @@
   const plainMsg = (m) => clean(String(m || '').replace(/<[^>]+>/g, ' '));
   function toggleFav(t) {
     if (favPending.has(t.id)) return; // ya hay una petición en curso
-    const b = origFav(t);
     const before = isFav(t);
     const c0 = favCount();
     const t0 = Date.now();
@@ -1904,7 +2849,7 @@
           const n = sp ? parseInt(clean(sp.textContent), 10) : NaN;
           if (sp && isFinite(n) && favored !== before) sp.textContent = String(Math.max(0, n + (favored ? 1 : -1)));
         }
-        if (b) b.classList.toggle('favored', favored);
+        setFavKnown(t.id, favored, t);
         // avisar a la web de Soundeo para que su reproductor y sus listas se actualicen
         try { window.jQuery && window.jQuery(document).trigger('favored.track', { favored, trackId: Number(t.id) }); } catch (e) {}
         done(true, favored);
@@ -2023,6 +2968,7 @@
     $('.' + cls, root).classList.add('on');
   }
   function closeSheets() {
+    if (!root) return;
     shadeEl.classList.remove('on');
     $$('.sheet.on', root).forEach((s) => s.classList.remove('on'));
   }
@@ -2032,24 +2978,29 @@
     const b = $('.sb', s);
     b.innerHTML = (sub ? `<div class="asub">${esc(sub)}</div>` : '') + (note ? `<div class="note" style="margin:0 0 6px">${esc(note)}</div>` : '');
     opts.forEach((o) => {
-      const x = el(`<button class="opt${o.pri ? ' pri' : ''}"${o.disabled ? ' disabled' : ''}>${o.icon ? i(o.icon) : ''}<span>${esc(o.label)}</span>${o.small ? '<small>' + esc(o.small) + '</small>' : ''}</button>`);
+      const txt = o.hint ? `<span class="ol"><span>${esc(o.label)}</span><em>${esc(o.hint)}</em></span>` : `<span>${esc(o.label)}</span>`;
+      const x = el(`<button class="opt${o.pri ? ' pri' : ''}"${o.disabled ? ' disabled' : ''}>${o.icon ? i(o.icon) : ''}${txt}${o.small ? '<small>' + esc(o.small) + '</small>' : ''}</button>`);
       if (!o.disabled) x.addEventListener('click', () => { closeSheets(); o.fn(); });
       b.appendChild(x);
     });
+    b.scrollTop = 0;
     openSheet('s-action');
   }
   function moreSheet(t) {
     const opts = [];
-    if (t.labelId) {
-      opts.push({ label: 'Más de ' + t.label, icon: 'feed', fn: () => {
-        location.href = buildListUrl({ available: '1', label: t.labelId, genres: [], time: '0' }) + '#sx=feed';
-      } });
-    }
-    opts.push({ label: 'Copiar «' + (t.artist ? t.artist + ' – ' : '') + t.name + '»', icon: 'check', fn: () => copyText(t.full) });
-    if (t.trackUrl) opts.push({ label: 'Abrir track en Soundeo', icon: 'ext', fn: () => { closeApp(); location.href = t.trackUrl; } });
-    if (t.releaseUrl) opts.push({ label: 'Abrir release en Soundeo', icon: 'ext', fn: () => { closeApp(); location.href = t.releaseUrl; } });
+    const m = metaCache[t.id];
+    if (m && m.ar && m.ar.length) m.ar.slice(0, 4).forEach((a) => opts.push({ label: a[1], hint: 'Artista · ver sus tracks', icon: 'user', fn: () => openSource(artistDesc(a[0], a[1]), { view: 'list' }) }));
+    else if (t.artist) opts.push({ label: t.artist, hint: 'Artista · ver sus tracks', icon: 'user', fn: () => openArtist(t) });
+    if (t.releaseUrl) opts.push({ label: t.release || 'Release', hint: 'Release · ver todos sus tracks', icon: 'disc', fn: () => openRelease(t) });
+    if (t.labelId) opts.push({ label: t.label, hint: 'Sello · ver sus tracks', icon: 'tag', fn: () => openLabel(t) });
+    if (t.genreId) opts.push({ label: t.genre, hint: 'Género · lo último disponible', icon: 'feed', fn: () => openGenre(t) });
+    if (/^\d+$/.test(t.id)) opts.push({ label: 'Parecidas', hint: 'Lo que también descargan quienes bajan esta', icon: 'disc', fn: () => openSimilar(t) });
+    opts.push({ label: 'Copiar nombre', hint: (t.artist ? t.artist + ' – ' : '') + t.name, icon: 'check', fn: () => copyText(t.full) });
+    if (t.trackUrl) opts.push({ label: 'Abrir en la web de Soundeo', icon: 'ext', fn: () => { closeApp(); location.href = t.trackUrl; } });
     if (t.vote) opts.push({ label: 'Votar para que esté disponible', icon: 'up', fn: () => vote(t) });
-    actionSheet(t.name, [t.artist, t.release, t.label].filter(Boolean).join(' · '), '', opts);
+    actionSheet(t.name, [t.artist, t.mix].filter(Boolean).join(' · '), '', opts);
+    // si aún no sabemos quiénes son los artistas, pedirlo ya para que el toque sea inmediato
+    if (!(m && m.ar)) getMeta(t, true, true);
   }
   function copyText(s) {
     const done = () => toast('Copiado');
@@ -2069,143 +3020,146 @@
   }
 
   /* ───────────── ajustes ───────────── */
+  function goStart() {
+    closeSheets();
+    openSource(sectionDesc(prefs.startSection || 'avail'), { root: true });
+  }
   function openSettings(mode) {
     const isStart = mode === 'start';
-    const cur = isStart ? defFilters : filtersFromUrl();
-    const f = {
-      genres: (cur.genres || []).slice(), bpmMin: cur.bpmMin, bpmMax: cur.bpmMax, time: cur.time || '0', keys: (cur.keys || []).slice(),
-      available: cur.available == null ? '1' : cur.available, trackType: cur.trackType || '0', search: isStart ? '' : cur.search || '',
-      artist: isStart ? '' : cur.artist || '', label: isStart ? '' : cur.label || '',
-    };
+    const canF = isStart || !!(cur && cur.canFilter);
+    const loose = !isStart && !!(cur && cur.loose);
+    const f = cleanFilters(isStart ? defFilters : (cur && cur.filters) || defFilters);
+    if (isStart) f.search = '';
     const s = $('.s-settings', root);
     const b = $('.sb', s);
     $('h2', s).textContent = isStart ? 'Filtros al abrir' : 'Ajustes';
     const genres = genreOptions();
     const keys = keyOptions();
-    const favN = clean($('#span-favorites') && $('#span-favorites').textContent);
     const acc = clean($('#top-menu-account span') && $('#top-menu-account span').textContent);
-    b.innerHTML = `
-      ${isStart ? '<div class="note" style="margin-top:4px">Con estos filtros se abrirá la app cada vez que entres en Soundeo.</div>' : ''}
-      ${isStart ? '' : `
-      <div class="sec">Al abrir la app</div>
-      <button class="opt ostart">${i('sliders')}<span class="ol"><span>Filtros de inicio</span><em>${esc(describeFilters(defFilters))}</em></span><small>›</small></button>
-      <div class="tg"><div><b>Empezar siempre con estos filtros</b><small>Aunque entres desde un marcador, un enlace o soundeo.com</small></div><button class="sw" data-p="forceStart"></button></div>
-      <div class="tg"><div><b>Abrir la app automáticamente</b><small>Al entrar en Soundeo desde el móvil</small></div><button class="sw" data-p="autoOpen"></button></div>
-      <div class="lab">Vista al abrir</div>
-      <div class="seg2 sv"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
-      ${sameAsStart() ? '' : '<button class="opt pri bmine" style="margin-top:6px">' + i('feed') + '<span>Ir ahora a los filtros de inicio</span></button>'}
-      `}
-      <div class="sec">${isStart ? 'Filtros de inicio' : 'Filtros de esta vista'}</div>
-      ${f.label || f.artist ? `<div class="note" style="margin-top:0">Estás viendo un ${f.label ? 'sello' : 'artista'} concreto. «Aplicar» lo mantiene; «Mis filtros» vuelve a tu selección.</div>` : ''}
+    const atStart = !!cur && stack.length === 1 && cur.kind === 'section' && cur.key === (prefs.startSection || 'avail') && (!cur.filters || normFilters(cur.filters) === normFilters(sectionDesc(cur.key).filters));
+    const filterBlock = !canF ? '' : `
+      <div class="sec">${isStart ? 'Filtros de inicio' : 'Filtros de ' + esc(cur.title)}</div>
+      ${loose ? '<div class="note" style="margin-top:0">En esta sección Soundeo puede no aplicar todos los filtros; el género se filtra en la app.</div>' : ''}
       <div class="lab">Géneros <small class="gcount"></small></div>
       <div class="tags tg-genres collapsed">${genres.map((g) => `<button class="tag" data-id="${esc(g.id)}">${esc(g.name)}</button>`).join('')}<button class="tag tmore" data-for="tg-genres">＋ Ver los ${genres.length}</button></div>
       <div class="lab">BPM <a href="#" class="bpmclear">Quitar</a></div>
       <div class="bpm"><input class="bmin" type="number" inputmode="numeric" placeholder="mín" min="0" max="260"><span>–</span><input class="bmax" type="number" inputmode="numeric" placeholder="máx" min="0" max="260"></div>
       <div class="presets">${[[120, 126], [124, 130], [127, 140], [130, 140], [135, 150]].map(([a, z]) => `<button class="tag bp" data-a="${a}" data-z="${z}">${a}–${z}</button>`).join('')}</div>
-      <div class="lab">Fecha de lanzamiento</div>
-      <div class="tags tg-time">${TIME_OPTS.map(([v, n]) => `<button class="tag" data-v="${v}">${n}</button>`).join('')}</div>
+      <div${loose ? ' style="display:none"' : ''}><div class="lab">Fecha de lanzamiento</div>
+      <div class="tags tg-time">${TIME_OPTS.map(([v, n]) => `<button class="tag" data-v="${v}">${n}</button>`).join('')}</div></div>
       <div class="lab">Tonalidad <small>opcional · Camelot</small></div>
       <div class="tags tg-keys collapsed">${keys.map((k) => `<button class="tag" data-id="${esc(k.id)}"><small>${esc(k.cam)}</small>${esc(k.id)}</button>`).join('')}<button class="tag tmore" data-for="tg-keys">＋ Elegir tonalidades</button></div>
-      <div${isStart ? ' style="display:none"' : ''}><div class="lab">Buscar por título</div>
-      <input class="txt srch" type="search" placeholder="Mín. 3 letras" autocomplete="off" autocapitalize="off"></div>
-      <div class="tg"><div><b>Solo disponibles</b><small>Oculta los tracks que solo se pueden votar</small></div><button class="sw sw-av"></button></div>
+      <div${isStart || loose ? ' style="display:none"' : ''}><div class="lab">Buscar por título</div>
+      <input class="txt srch-t" type="search" placeholder="Mín. 3 letras" autocomplete="off" autocapitalize="off">
+      <div class="tg"><div><b>Solo disponibles</b><small>Oculta los tracks que solo se pueden votar</small></div><button class="sw sw-av"></button></div></div>`;
+    b.innerHTML = `
+      ${isStart ? '<div class="note" style="margin-top:4px">Con estos filtros se abre la app, y son los que se usan en las secciones del menú.</div>' : `
+      <div class="sec">Al abrir la app</div>
+      <div class="lab">Sección</div>
+      <div class="tags tg-sec">${SECTIONS.map((x) => `<button class="tag" data-k="${x.key}">${esc(x.name)}</button>`).join('')}</div>
+      <button class="opt ostart" style="margin-top:6px">${i('sliders')}<span class="ol"><span>Filtros de inicio</span><em>${esc(describeFilters(defFilters))}</em></span><small>›</small></button>
+      <div class="tg"><div><b>Empezar siempre con estos filtros</b><small>Aunque entres desde un marcador, un enlace o soundeo.com</small></div><button class="sw" data-p="forceStart"></button></div>
+      <div class="tg"><div><b>Abrir la app automáticamente</b><small>Al entrar en Soundeo desde el móvil</small></div><button class="sw" data-p="autoOpen"></button></div>
+      <div class="lab">Vista al abrir</div>
+      <div class="seg2 sv"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
+      ${atStart ? '' : '<button class="opt pri bmine" style="margin-top:6px">' + i('feed') + '<span>Ir ahora a la sección y filtros de inicio</span></button>'}
+      `}
+      ${filterBlock}
       ${isStart ? '' : `
-
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
-      <div class="tg"><div><b>Precargar la siguiente canción</b><small>Al pasar de canción empieza a sonar antes. Gasta algo más de datos</small></div><button class="sw" data-p="preload"></button></div>
-      <div class="tg"><div><b>Feed: solo lo que no he escuchado</b><small>Oculta los tracks que ya han sonado</small></div><button class="sw" data-p="skipHeard"></button></div>
+      <div class="tg"><div><b>Precargar las siguientes canciones</b><small>Empiezan a sonar al instante y se puede saltar por ellas sin esperar. Gasta más datos</small></div><button class="sw" data-p="preload"></button></div>
+      <div class="tg"><div><b>Feed: solo lo que no he escuchado</b><small>En las secciones, oculta los tracks que ya han sonado</small></div><button class="sw" data-p="skipHeard"></button></div>
       <div class="tg"><div><b>Sincronizar escuchadas con la web</b><small>Lo que Soundeo marca como escuchado cuenta aquí, y lo que escuchas aquí se marca en Soundeo</small></div><button class="sw" data-p="siteHeard"></button></div>
       <div class="tg"><div><b>Confirmar antes de descargar</b><small>Para no gastar descargas sin querer</small></div><button class="sw" data-p="confirmDownload"></button></div>
 
-      <div class="sec">Atajos</div>
-      <button class="opt gofav">${i('star')}<span>Mis favoritos</span><small>${esc(favN)}</small></button>
-      <button class="opt godl">${i('dl')}<span>Mis descargas</span><small>${dlLeft() == null ? '' : 'quedan ' + dlLeft() + ' hoy'}</small></button>
+      <div class="sec">Más</div>
+      <button class="opt gomenu">${i('menu')}<span>Secciones de Soundeo</span></button>
       <button class="opt goweb">${i('ext')}<span>Ver la web original</span></button>
       <button class="opt rsheard">${i('back')}<span>Olvidar escuchadas</span><small>${heard.size}</small></button>
       ${loader() ? `<button class="opt oupd">${i('fwd')}<span>Buscar actualización</span><small>v${VERSION}</small></button>` : ''}
       <button class="opt diag">${i('more')}<span>Diagnóstico (para Claude)</span></button>
-      <button class="opt diagnav">${i('more')}<span>Diagnóstico de navegación</span><small>para la 1.2</small></button>
       <div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
     `;
-    const paintTags = () => {
-      $$('.tg-genres .tag[data-id]', b).forEach((x) => x.classList.toggle('on', f.genres.includes(x.dataset.id)));
-      $('.gcount', b).textContent = f.genres.length ? f.genres.length + ' seleccionados' : 'todos';
-      $$('.tg-time .tag', b).forEach((x) => x.classList.toggle('on', x.dataset.v === String(f.time)));
-      $$('.tg-keys .tag[data-id]', b).forEach((x) => x.classList.toggle('on', f.keys.includes(x.dataset.id)));
-      $$('.presets .bp', b).forEach((x) => x.classList.toggle('on', +x.dataset.a === f.bpmMin && +x.dataset.z === f.bpmMax));
-      $('.sw-av', b).classList.toggle('on', String(f.available) !== '0');
-    };
-    $('.bmin', b).value = f.bpmMin != null ? f.bpmMin : '';
-    $('.bmax', b).value = f.bpmMax != null ? f.bpmMax : '';
-    $('.srch', b).value = f.search || '';
-    paintTags();
-    $$('.tg-genres .tag[data-id]', b).forEach((x) => x.addEventListener('click', () => {
-      const id = x.dataset.id;
-      f.genres = f.genres.includes(id) ? f.genres.filter((g) => g !== id) : f.genres.concat(id);
-      paintTags();
-    }));
-    $$('.tg-time .tag', b).forEach((x) => x.addEventListener('click', () => { f.time = x.dataset.v; paintTags(); }));
-    $$('.tg-keys .tag[data-id]', b).forEach((x) => x.addEventListener('click', () => {
-      const id = x.dataset.id;
-      f.keys = f.keys.includes(id) ? f.keys.filter((k) => k !== id) : f.keys.concat(id);
-      paintTags();
-    }));
-    $$('.presets .bp', b).forEach((x) => x.addEventListener('click', () => {
-      f.bpmMin = +x.dataset.a; f.bpmMax = +x.dataset.z;
-      $('.bmin', b).value = f.bpmMin; $('.bmax', b).value = f.bpmMax; paintTags();
-    }));
-    $('.bpmclear', b).addEventListener('click', (e) => { e.preventDefault(); f.bpmMin = f.bpmMax = null; $('.bmin', b).value = ''; $('.bmax', b).value = ''; paintTags(); });
-    $$('.tmore', b).forEach((x) => x.addEventListener('click', () => {
-      const box = $('.' + x.dataset.for, b);
-      box.classList.remove('collapsed');
-      x.remove();
-    }));
-    const readBpm = () => {
-      const a = parseInt($('.bmin', b).value, 10);
-      const z = parseInt($('.bmax', b).value, 10);
-      f.bpmMin = isFinite(a) ? a : null;
-      f.bpmMax = isFinite(z) ? z : null;
-      if (f.bpmMin != null && f.bpmMax != null && f.bpmMin > f.bpmMax) { const t = f.bpmMin; f.bpmMin = f.bpmMax; f.bpmMax = t; }
-      paintTags();
-    };
-    $('.bmin', b).addEventListener('change', readBpm);
-    $('.bmax', b).addEventListener('change', readBpm);
-    $('.sw-av', b).addEventListener('click', () => { f.available = String(f.available) === '0' ? '1' : '0'; paintTags(); });
-    const go = (ff) => {
-      readBpm();
-      ff.search = clean($('.srch', b).value);
-      if (ff.search && ff.search.length < 3) { toast('La búsqueda necesita 3 letras o más'); return; }
-      location.href = buildListUrl(ff) + '#sx=' + view;
-    };
-    const saveStart = () => {
-      readBpm();
-      const keep = { genres: f.genres, bpmMin: f.bpmMin, bpmMax: f.bpmMax, time: f.time, keys: f.keys, available: f.available, trackType: f.trackType, search: '' };
-      defFilters = Object.assign({}, DEFAULT_FILTERS, keep);
-      LS.set('filters', defFilters);
-    };
     const foot = $('.sf', s);
-    if (isStart) {
-      foot.innerHTML = '<button class="btn bback">Volver</button><button class="btn pri bsavestart">Guardar</button>';
-      $('.bback', foot).addEventListener('click', () => openSettings());
-      $('.bsavestart', foot).addEventListener('click', () => {
-        saveStart();
-        openSettings();
-        toast('Guardado: Soundeo se abrirá con estos filtros', sameAsStart() ? '' : 'Verlos ya', () => { location.href = buildListUrl(defFilters) + '#sx=' + view; });
-      });
-    } else {
-      foot.innerHTML = '<button class="btn bsave">Guardar como inicio</button><button class="btn pri bapply">Aplicar filtros</button>';
-      $('.bapply', foot).addEventListener('click', () => go(f));
-      $('.bsave', foot).addEventListener('click', () => {
-        saveStart();
-        toast('Guardados como filtros de inicio');
-        go(Object.assign({}, f, { artist: '', label: '' }));
-      });
+    foot.style.display = canF ? '' : 'none';
+    if (canF) {
+      const paintTags = () => {
+        $$('.tg-genres .tag[data-id]', b).forEach((x) => x.classList.toggle('on', f.genres.includes(x.dataset.id)));
+        $('.gcount', b).textContent = f.genres.length ? f.genres.length + ' seleccionados' : 'todos';
+        $$('.tg-time .tag', b).forEach((x) => x.classList.toggle('on', x.dataset.v === String(f.time)));
+        $$('.tg-keys .tag[data-id]', b).forEach((x) => x.classList.toggle('on', f.keys.includes(x.dataset.id)));
+        $$('.presets .bp', b).forEach((x) => x.classList.toggle('on', +x.dataset.a === f.bpmMin && +x.dataset.z === f.bpmMax));
+        $('.sw-av', b).classList.toggle('on', String(f.available) !== '0');
+      };
+      $('.bmin', b).value = f.bpmMin != null ? f.bpmMin : '';
+      $('.bmax', b).value = f.bpmMax != null ? f.bpmMax : '';
+      $('.srch-t', b).value = f.search || '';
+      paintTags();
+      $$('.tg-genres .tag[data-id]', b).forEach((x) => x.addEventListener('click', () => {
+        const id = x.dataset.id;
+        f.genres = f.genres.includes(id) ? f.genres.filter((g) => g !== id) : f.genres.concat(id);
+        paintTags();
+      }));
+      $$('.tg-time .tag', b).forEach((x) => x.addEventListener('click', () => { f.time = x.dataset.v; paintTags(); }));
+      $$('.tg-keys .tag[data-id]', b).forEach((x) => x.addEventListener('click', () => {
+        const id = x.dataset.id;
+        f.keys = f.keys.includes(id) ? f.keys.filter((k) => k !== id) : f.keys.concat(id);
+        paintTags();
+      }));
+      $$('.presets .bp', b).forEach((x) => x.addEventListener('click', () => {
+        f.bpmMin = +x.dataset.a; f.bpmMax = +x.dataset.z;
+        $('.bmin', b).value = f.bpmMin; $('.bmax', b).value = f.bpmMax; paintTags();
+      }));
+      $('.bpmclear', b).addEventListener('click', (e) => { e.preventDefault(); f.bpmMin = f.bpmMax = null; $('.bmin', b).value = ''; $('.bmax', b).value = ''; paintTags(); });
+      $$('.tmore', b).forEach((x) => x.addEventListener('click', () => {
+        $('.' + x.dataset.for, b).classList.remove('collapsed');
+        x.remove();
+      }));
+      const readBpm = () => {
+        const a = parseInt($('.bmin', b).value, 10);
+        const z = parseInt($('.bmax', b).value, 10);
+        f.bpmMin = isFinite(a) ? a : null;
+        f.bpmMax = isFinite(z) ? z : null;
+        if (f.bpmMin != null && f.bpmMax != null && f.bpmMin > f.bpmMax) { const t = f.bpmMin; f.bpmMin = f.bpmMax; f.bpmMax = t; }
+        paintTags();
+      };
+      $('.bmin', b).addEventListener('change', readBpm);
+      $('.bmax', b).addEventListener('change', readBpm);
+      $('.sw-av', b).addEventListener('click', () => { f.available = String(f.available) === '0' ? '1' : '0'; paintTags(); });
+      const go = () => {
+        readBpm();
+        f.search = clean($('.srch-t', b).value);
+        if (f.search && f.search.length < 3) { toast('La búsqueda por título necesita 3 letras o más'); return; }
+        closeSheets();
+        refilter(f);
+      };
+      const saveStart = () => {
+        readBpm();
+        defFilters = Object.assign({}, DEFAULT_FILTERS, { genres: f.genres.slice(), bpmMin: f.bpmMin, bpmMax: f.bpmMax, time: f.time, keys: f.keys.slice(), trackType: f.trackType, search: '' });
+        LS.set('filters', defFilters);
+      };
+      if (isStart) {
+        foot.innerHTML = '<button class="btn bback">Volver</button><button class="btn pri bsavestart">Guardar</button>';
+        $('.bback', foot).addEventListener('click', () => openSettings());
+        $('.bsavestart', foot).addEventListener('click', () => {
+          saveStart();
+          openSettings();
+          toast('Guardado: la app se abrirá con estos filtros', 'Verlos ya', goStart);
+        });
+      } else {
+        foot.innerHTML = '<button class="btn bsave">Guardar como inicio</button><button class="btn pri bapply">Aplicar filtros</button>';
+        $('.bapply', foot).addEventListener('click', go);
+        $('.bsave', foot).addEventListener('click', () => { saveStart(); toast('Guardados como filtros de inicio'); go(); });
+      }
     }
+    if (isStart) { $('.sb', s).scrollTop = 0; openSheet('s-settings'); return; }
+    const paintSec = () => $$('.tg-sec .tag', b).forEach((x) => x.classList.toggle('on', x.dataset.k === (prefs.startSection || 'avail')));
+    paintSec();
+    $$('.tg-sec .tag', b).forEach((x) => x.addEventListener('click', () => { prefs.startSection = x.dataset.k; savePrefs(); paintSec(); }));
     const bm = $('.bmine', b);
-    if (bm) bm.addEventListener('click', (e) => { e.preventDefault(); location.href = buildListUrl(defFilters) + '#sx=' + view; });
-    const os = $('.ostart', b);
-    if (os) os.addEventListener('click', () => { openSettings('start'); $('.sb', s).scrollTop = 0; });
+    if (bm) bm.addEventListener('click', goStart);
+    $('.ostart', b).addEventListener('click', () => openSettings('start'));
     $$('.sw[data-p]', b).forEach((x) => {
       const p = x.dataset.p;
       x.classList.toggle('on', !!prefs[p]);
@@ -2214,82 +3168,99 @@
         savePrefs();
         x.classList.toggle('on', !!prefs[p]);
         if (p === 'skipHeard' || p === 'siteHeard') {
-          hiddenAtLoad = hiddenFor(tracks);
-          forced = new Set();
+          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+          setForced(new Set());
           rebuild(current || deck[activeIdx]);
         }
-        if (p === 'preload' && !prefs.preload) {
-          // dejar de descargar lo que estuviera precargando
-          const sp = spare();
-          sp._sxId = null;
-          try { sp.removeAttribute('src'); sp.load(); } catch (e) {}
-        }
+        if (p === 'preload' && !prefs.preload) dropPreloads();
       });
     });
     const paintSv = () => $$('.sv button', b).forEach((x) => x.classList.toggle('on', x.dataset.v === prefs.startView));
     paintSv();
     $$('.sv button', b).forEach((x) => x.addEventListener('click', () => { prefs.startView = x.dataset.v; savePrefs(); paintSv(); }));
-    if (isStart) { openSheet('s-settings'); return; }
-    $('.gofav', b).addEventListener('click', () => { location.href = location.origin + '/account/favorites#sx=list'; });
-    $('.godl', b).addEventListener('click', () => { location.href = location.origin + '/account/downloads#sx=list'; });
+    $('.gomenu', b).addEventListener('click', openMenu);
     $('.goweb', b).addEventListener('click', () => { closeSheets(); closeApp(); });
     $('.rsheard', b).addEventListener('click', () => {
       heard.clear();
       LS.set('heard', []);
-      hiddenAtLoad = new Set();
-      forced = new Set();
+      setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+      setForced(new Set());
       rebuild(current || deck[activeIdx]);
       closeSheets();
       toast('Historial de escuchadas borrado');
     });
     $('.diag', b).addEventListener('click', diagnostics);
-    $('.diagnav', b).addEventListener('click', () => { closeSheets(); navProbe(); });
     const ou = $('.oupd', b);
     if (ou) ou.addEventListener('click', () => { closeSheets(); checkUpdate(); });
     openSheet('s-settings');
   }
 
   /* ───────────── diagnóstico ───────────── */
+  // Resumen de cómo es una página de Soundeo (solo su estructura), para cuando no encuentro tracks en ella.
+  function pageShape(doc) {
+    try {
+      const left = $('.content .left', doc) || $('.content', doc) || doc.body;
+      const sig = (n) => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') +
+        (typeof n.className === 'string' && n.className.trim() ? '.' + n.className.trim().split(/\s+/).slice(0, 4).join('.') : '');
+      const tally = (nodes) => {
+        const m = {};
+        nodes.forEach((n) => { const k = sig(n); m[k] = (m[k] || 0) + 1; });
+        return Object.keys(m).slice(0, 20).map((k) => (m[k] > 1 ? k + ' ×' + m[k] : k));
+      };
+      const kids = Array.from(left.children);
+      const first = kids.find((c) => !/^(h1|script|style)$/i.test(c.tagName) && clean(c.textContent).length > 3);
+      return {
+        title: short(doc.title, 80), root: sig(left),
+        heads: $$('h1,h2,h3', left).slice(0, 6).map((h) => h.tagName + ': ' + short(h.textContent, 50)),
+        children: tally(kids), inner: tally(kids.flatMap((c) => Array.from(c.children))),
+        previews: $$('[data-track-url]', doc).length, trackLinks: $$('a[href*="/track/"]', left).length,
+        sample: first ? short(first.outerHTML, 900) : null,
+      };
+    } catch (e) { return { err: String(e) }; }
+  }
   async function diagnostics() {
     const t = deck[activeIdx] || tracks[0];
+    const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
     const out = {
       v: VERSION,
       url: location.href,
       ua: navigator.userAgent,
+      view,
       tracks: tracks.length,
       deck: deck.length,
+      cards: filled.size,
       coverSize,
-      sampleCover: t && t.cover,
       sampleMeta: t && metaCache[t.id],
       jq: typeof window.jQuery,
+      loader: loader() ? { v: loader().version, running: loader().running, src: loader().source } : null,
+      nav: stack.map((s) => ({
+        kind: s.kind, key: s.key, title: s.title, url: short(String(s.url).replace(location.origin, ''), 200), tracks: (s === cur ? tracks : s.tracks).length,
+        mode: s.mode, pages: s.pages.first + '-' + s.pages.last + (s.pages.hasMore ? '+' : ''), count: s.count, cut: s.cut || undefined,
+        follow: s.follow || undefined, error: s.error || undefined, msg: s.msg || undefined, probe: s.probe || undefined,
+      })),
+      player: {
+        preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
+        startMs: { pre: avg(pl.stat.pre), preN: pl.stat.pre.n, cold: avg(pl.stat.cold), coldN: pl.stat.cold.n }, last: pl.last,
+        seek: { n: pl.seek.n, avgMs: avg(pl.seek), inBuffer: pl.seek.inBuf, last: pl.seek.last },
+        pool: players.map((a) => ({ on: a === audio, id: a._sxId || null, ready: a.readyState, buf: bufSecs(a), err: a.error ? a.error.code : null })),
+      },
+      lastAction,
+      capture: cap.items,
+      counters: { downloads: dlLeft(), favorites: favCount() },
+      siteListened: { tracks: tracks.length, siteHeard: tracks.filter((x) => x.siteHeard).length, mine: tracks.filter((x) => heard.has(x.id)).length, heardTotal: heard.size },
     };
-    out.loader = loader() ? { v: loader().version, running: loader().running, src: loader().source } : null;
-    const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
-    out.player = {
-      preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
-      startMs: { pre: avg(pl.stat.pre), preN: pl.stat.pre.n, cold: avg(pl.stat.cold), coldN: pl.stat.cold.n }, last: pl.last,
-      spare: { id: spare()._sxId || null, ready: spare().readyState, buf: bufSecs(spare()), err: spare().error ? spare().error.code : null },
-    };
-    out.lastAction = lastAction;
-    out.capture = cap.items;
-    out.counters = { downloads: dlLeft(), favorites: favCount() };
-    out.mainScript = ($('#mainScript') || {}).src || null;
-    out.notification = typeof window.Notification;
-    out.siteListened = { listened: $$('.content .left .vis.listened').length, vis: $$('.content .left .vis').length, tracks: tracks.length, siteHeard: tracks.filter((t) => t.siteHeard).length, mine: tracks.filter((t) => heard.has(t.id)).length, pagesLoaded: pages.first + '-' + pages.last };
     if (t) {
       const fb = origFav(t);
-      out.favBtn = fb ? fb.outerHTML : null;
-      if (!metaCache[t.id]) try {
+      out.favBtn = fb ? short(fb.outerHTML, 200) : null;
+      if (!metaCache[t.id] && t.trackUrl) try {
         const r = await fetch(t.trackUrl, { credentials: 'include' });
         const html = await r.text();
         out.trackStatus = r.status;
         const doc = new DOMParser().parseFromString(html, 'text/html');
-        const og = $('meta[property="og:image"]', doc);
-        out.ogImage = og && og.getAttribute('content');
         const scope = stripChrome(doc);
         const src = scope ? scope.innerHTML.replace(/\s+/g, ' ') : '';
         const k = src.search(/bpm/i);
-        out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 500), k + 500) : src.slice(0, 1000);
+        out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 400), k + 400) : src.slice(0, 800);
       } catch (e) { out.trackErr = String(e); }
     }
     showDiag('Diagnóstico', JSON.stringify(out, null, 1));
@@ -2302,86 +3273,6 @@
     $('textarea', b).value = txt;
     $('.bcopy', b).addEventListener('click', () => copyText(txt));
     openSheet('s-action');
-  }
-
-  // Sonda de navegación: mira cómo son las páginas de búsqueda, artista, sello, release y seguidos
-  // de Soundeo (solo su estructura) para poder construir esas vistas dentro de la app.
-  async function navProbe() {
-    const t = current || deck[activeIdx] || tracks[0];
-    if (!t) { toast('Abre primero una lista con tracks'); return; }
-    toast('Analizando páginas de Soundeo…');
-    const out = { v: VERSION, probe: 'nav', track: { id: t.id, artist: t.artist, label: t.label, labelId: t.labelId || null } };
-    const sig = (n) => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') +
-      (typeof n.className === 'string' && n.className.trim() ? '.' + n.className.trim().split(/\s+/).slice(0, 4).join('.') : '');
-    const tally = (nodes) => {
-      const m = {};
-      nodes.forEach((n) => { const k = sig(n); m[k] = (m[k] || 0) + 1; });
-      return Object.keys(m).slice(0, 24).map((k) => (m[k] > 1 ? k + ' ×' + m[k] : k));
-    };
-    const look = async (name, url, extra) => {
-      const o = { url: url.replace(location.origin, '') };
-      out[name] = o;
-      try {
-        const r = await fetch(url, { credentials: 'include' });
-        o.status = r.status;
-        if (r.url && r.url !== url) o.final = r.url.replace(location.origin, '');
-        const html = await r.text();
-        o.len = html.length;
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        o.title = short(doc.title, 90);
-        const left = $('.content .left', doc) || $('.content', doc) || doc.body;
-        o.root = sig(left);
-        o.heads = $$('h1,h2,h3', left).slice(0, 8).map((h) => h.tagName + ': ' + short(h.textContent, 60));
-        o.tracks = $$('.trackitem[data-track-id]', left).length;
-        o.pagination = !!$('.pagination', left);
-        const kids = Array.from(left.children);
-        o.children = tally(kids);
-        o.inner = tally(kids.filter((c) => !c.classList.contains('trackitem')).flatMap((c) => Array.from(c.children)).filter((n) => !n.classList.contains('trackitem')));
-        // enlaces que no son de un track, agrupados por forma
-        const links = {};
-        $$('a[href]', left).forEach((a) => {
-          if (a.closest('.trackitem') || a.closest('.pagination')) return;
-          const h = a.getAttribute('href') || '';
-          const k = h.replace(/^https?:\/\/[^/]+/, '').replace(/=[^&]*/g, '=…').replace(/\/[^/?]+\.html.*$/, '/….html').replace(/\d+/g, 'N').slice(0, 70);
-          (links[k] = links[k] || []).push(short(a.textContent, 40) + ' → ' + short(h, 110));
-        });
-        o.links = Object.keys(links).slice(0, 16).map((k) => ({ k, n: links[k].length, ej: links[k].slice(0, 2) }));
-        // botones de seguir / favorito que no son de un track
-        o.follow = $$('[class*="follow"],[class*="favor"],[class*="subscr"],[data-artist-id],[data-label-id]', doc)
-          .filter((n) => !n.closest('.trackitem') && !/^(html|body|i)$/i.test(n.tagName)).slice(0, 8).map((n) => short(n.outerHTML, 420));
-        // primer bloque que no es un track (cabecera de artista/sello/release, resultado de búsqueda…)
-        const first = kids.find((c) => !c.classList.contains('trackitem') && !/^(h1|script|style)$/i.test(c.tagName) && !c.querySelector('.trackitem') && clean(c.textContent).length > 3);
-        o.sample = first ? short(first.outerHTML, 900) : null;
-        if (extra) extra(doc, left, o);
-      } catch (e) { o.err = String(e); }
-      return o;
-    };
-    // menús de la web (fuera del contenido)
-    const seen = new Set();
-    out.menu = $$('a[href]').filter((a) => !a.closest('.content') && !a.closest('#sx-host')).map((a) => {
-      const h = (a.getAttribute('href') || '').replace(location.origin, '');
-      return short(a.textContent, 28) + ' → ' + short(h, 70);
-    }).filter((x) => !/→ (#|javascript:)?$/.test(x) && !seen.has(x) && seen.add(x)).slice(0, 45);
-    out.forms = $$('form').filter((f) => !f.closest('#sx-host')).slice(0, 4).map((f) => ({
-      action: f.getAttribute('action'), method: f.getAttribute('method'), fields: $$('input,select', f).slice(0, 8).map((x) => (x.name || x.id || '?') + ':' + (x.type || x.tagName.toLowerCase())),
-    }));
-    const artist1 = clean(String(t.artist || '').split(/,|&| feat| vs /i)[0]) || t.name;
-    let artistHref = '';
-    if (t.trackUrl) await look('trackPage', t.trackUrl, (doc, left, o) => {
-      o.artists = $$('a[href*="artistFilter="]', left).slice(0, 6).map((a) => short(a.textContent, 40) + ' → ' + short(a.getAttribute('href'), 110));
-      const a = $$('a[href*="artistFilter="]', left).find((x) => /artistFilter=\d/.test(x.getAttribute('href')));
-      if (a) artistHref = absHref(a);
-      o.artistBox = short(($('.full-artist-link', left) || {}).outerHTML || '', 600) || null;
-    });
-    if (artistHref) await look('artist', artistHref);
-    if (t.labelId) await look('label', buildListUrl({ available: '1', label: t.labelId, genres: [], time: '0' }));
-    if (t.releaseUrl) await look('release', t.releaseUrl, (doc, left, o) => {
-      const ti = $('.trackitem[data-track-id]', left);
-      o.item = ti ? short(ti.outerHTML, 1100) : null;
-    });
-    await look('search', location.origin + '/search?q=' + encodeURIComponent(artist1));
-    await look('followed', location.origin + '/account/followed');
-    showDiag('Diagnóstico de navegación', JSON.stringify(out, null, 1));
   }
 
   /* ───────────── toasts y contadores ───────────── */
@@ -2407,7 +3298,10 @@
         const ids = new Set();
         muts.forEach((m) => {
           const tgt = m.target;
-          if (tgt && tgt.classList && tgt.classList.contains('favorites')) ids.add(tgt.getAttribute('data-track-id'));
+          if (tgt && tgt.classList && tgt.classList.contains('favorites')) {
+            const id = tgt.getAttribute('data-track-id');
+            if (id) { ids.add(id); if (!favPending.has(id)) favKnown.set(id, tgt.classList.contains('favored')); }
+          }
         });
         ids.forEach((id) => id && repaintFav(id));
       }).observe(left, { subtree: true, attributes: true, attributeFilter: ['class'] });
@@ -2453,65 +3347,88 @@
   /* ───────────── arranque ───────────── */
   function init() {
     const hs = parseHash();
-    let navType0 = 'navigate';
-    try { navType0 = (performance.getEntriesByType('navigation')[0] || {}).type || 'navigate'; } catch (e) {}
-    const fromOutside = navType0 === 'navigate' && !hs.view;
+    let navType = 'navigate';
+    try { navType = (performance.getEntriesByType('navigation')[0] || {}).type || 'navigate'; } catch (e) {}
+    const resume = navType === 'reload' || navType === 'back_forward';
+    const fromOutside = navType === 'navigate' && !hs.view;
     if (fromOutside && prefs.forceStart && prefs.autoOpen && isMobile() && isLoggedIn() && !SS.get('closed', 0) &&
         (location.pathname === '/' || (/^\/list\/tracks/.test(location.pathname) && !sameAsStart()))) {
-      location.replace(buildListUrl(defFilters) + '#sx=' + prefs.startView);
+      location.replace(startUrl() + '#sx=' + prefs.startView);
       return;
     }
-    const hasTracks = !!$('.trackitem[data-track-id]');
-    if (!hasTracks) {
+    const firstBoot = !SS.get('booted', 0);
+    // la página con la que arranca Safari es la primera fuente (no hay que pedir nada)
+    const info = readDoc(document, location.href);
+    if (!info.tracks.length) {
+      // página sin tracks (portada, cuenta…): solo el botón para abrir la app
       if (!isLoggedIn()) return;
       buildShell();
       root.classList.add('fabon');
       return;
     }
-    tracks = parseTracks();
-    if (!tracks.length) return;
-    pages.first = pages.last = pageNumber();
-    pages.hasMore = !!nextPageHref(document);
+    SS.set('booted', 1);
+    const live = mkSrc(Object.assign(describeUrl(location.href) || { kind: 'page', title: 'Soundeo', url: location.href.split('#')[0] }, { live: true, loaded: true }));
+    if (live.key === 'top100') info.tracks.forEach((t, k) => { t.rank = k + 1; });
+    live.tracks = localFilter(live, info.tracks);
+    live.pages = newPages(pageNumber());
+    live.pages.next = info.next;
+    live.pages.hasMore = !!info.next;
+    live.count = info.count;
+    live.follow = info.follow;
+    live.release = info.release;
+    live.msg = info.msg;
+    if (info.title && /^(artist|label|release|page)$/.test(live.kind)) live.title = info.title;
+    live.mode = listModeFor(live.tracks);
+    live.hidden = live.hide ? hiddenFor(live.tracks) : new Set();
+    liveSrc = live;
     buildShell();
     root.classList.add('fabon');
-    // la posición del hash solo vale al recargar o volver atrás (no al abrir un marcador)
-    let navType = 'navigate';
-    try { navType = (performance.getEntriesByType('navigation')[0] || {}).type || 'navigate'; } catch (e) {}
-    const resumeId = navType === 'reload' || navType === 'back_forward'
-      ? hs.id || SS.get('pos:' + location.pathname + location.search, null)
-      : null;
-    hiddenAtLoad = hiddenFor(tracks);
-    if (resumeId) forced.add(resumeId);
-    buildDeck();
-    renderFeed();
-    renderList();
+    // la posición guardada solo vale al recargar o volver atrás (no al abrir un marcador)
+    const resumeId = resume ? hs.id || SS.get('pos:' + location.pathname + location.search, null) : null;
+    if (resumeId) { live.forced.add(resumeId); live.at = resumeId; }
+    stack = [live];
+    // al recargar, volver a donde estabas (sección, artista, búsqueda…)
+    const nav = resume ? SS.get('nav', null) : null;
+    if (Array.isArray(nav) && nav.length && (nav.length > 1 || !nav[0].live) && (!nav[0].live || sameUrl(nav[0].url, live.url))) {
+      stack = nav.map((x, k) => {
+        if (k === 0 && x.live) { live.view = x.view; if (x.at && nav.length > 1) { live.at = x.at; live.forced.add(x.at); } return live; }
+        return mkSrc(Object.assign({}, x, { live: false }));
+      });
+    }
+    const top = stack[stack.length - 1];
+    view = (hs.view || (resume && top.view) || SS.get('view', null) || prefs.startView) === 'list' ? 'list' : 'feed';
+    if (!top.loaded) ensureLoaded(top);
+    adopt(top);
     watchSite();
     hookNet();
     hookSiteEvents();
     setupMediaSessionHandlers();
-
-    const at = resumeId ? deck.findIndex((t) => t.id === resumeId) : -1;
-    activeIdx = at >= 0 ? at : 0;
-    probeCoverSize(tracks[0] && tracks[0].cover);
+    probeCoverSize(live.tracks[0] && live.tracks[0].cover);
 
     const isListPage = /^\/list\/tracks/.test(location.pathname);
     const shouldOpen = hs.view || (isListPage && prefs.autoOpen && isMobile() && !SS.get('closed', 0));
     if (shouldOpen) {
       if (deck[activeIdx]) load(deck[activeIdx], false);
-      openApp(hs.view || SS.get('view', null) || prefs.startView);
+      openApp(view);
+      // sección de inicio que no es una lista normal (Top 100, próximos, seguidos…): abrirla ahora
+      const sec = prefs.startSection || 'avail';
+      if (!resume && (fromOutside || firstBoot) && stack.length === 1 && !/^(avail|all)$/.test(sec) && SECTIONS.some((x) => x.key === sec)) {
+        openSource(sectionDesc(sec), { root: true });
+      }
       // red de seguridad: si Soundeo marca TODA la página como escuchada, preguntar una vez
-      if (prefs.siteHeard && tracks.length >= 20 && tracks.every((t) => t.siteHeard) && !LS.get('siteHeardAsked', false)) {
+      if (prefs.siteHeard && live.tracks.length >= 20 && live.tracks.every((t) => t.siteHeard) && !LS.get('siteHeardAsked', false)) {
         LS.set('siteHeardAsked', true);
         setTimeout(() => toast('Soundeo marca toda esta página como escuchada', 'No usarlo', () => {
           prefs.siteHeard = false;
           savePrefs();
-          hiddenAtLoad = hiddenFor(tracks);
+          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
           rebuild(deck[0]);
         }), 600);
       }
-      if (!LS.get('hintSwipe', false)) {
+      if (!LS.get('hint12', false)) {
+        LS.set('hint12', true);
         LS.set('hintSwipe', true);
-        setTimeout(() => toast('Nuevo: desliza ← → para cambiar de canción y ↓ para ir a la lista', 'Vale', () => {}), 900);
+        setTimeout(() => toast('Nuevo: ☰ secciones, 🔍 buscador, y toca el artista, el release o el sello para ver sus tracks', 'Vale', () => {}), 900);
       }
       if (SS.get('autoplay', 0)) {
         SS.del('autoplay');
@@ -2521,6 +3438,29 @@
     }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  // Si algo falla al arrancar, que la web de Soundeo siga usable y se vea qué ha pasado.
+  function boot() {
+    try {
+      init();
+    } catch (e) {
+      try {
+        document.documentElement.classList.remove('sx-open');
+        if (host) host.remove();
+        const st = document.getElementById('sx-page-style');
+        if (st) st.remove();
+        vpMeta.restore();
+      } catch (x) {}
+      try {
+        const d = document.createElement('div');
+        d.textContent = 'Soundeo Feed ' + VERSION + ' no ha podido arrancar: ' + (e && e.message);
+        d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:2147483647;background:#111;color:#fff;font:600 14px/1.35 -apple-system,sans-serif;padding:12px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.4)';
+        d.addEventListener('click', () => d.remove());
+        document.body.appendChild(d);
+        setTimeout(() => d.remove(), 15000);
+      } catch (x) {}
+      try { console.error(e); } catch (x) {}
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
