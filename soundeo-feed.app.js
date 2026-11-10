@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -2174,6 +2174,7 @@
       <button class="opt rsheard">${i('back')}<span>Olvidar escuchadas</span><small>${heard.size}</small></button>
       ${loader() ? `<button class="opt oupd">${i('fwd')}<span>Buscar actualización</span><small>v${VERSION}</small></button>` : ''}
       <button class="opt diag">${i('more')}<span>Diagnóstico (para Claude)</span></button>
+      <button class="opt diagnav">${i('more')}<span>Diagnóstico de navegación</span><small>para la 1.2</small></button>
       <div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
     `;
     const paintTags = () => {
@@ -2291,6 +2292,7 @@
       toast('Historial de escuchadas borrado');
     });
     $('.diag', b).addEventListener('click', diagnostics);
+    $('.diagnav', b).addEventListener('click', () => { closeSheets(); navProbe(); });
     const ou = $('.oupd', b);
     if (ou) ou.addEventListener('click', () => { closeSheets(); checkUpdate(); });
     openSheet('s-settings');
@@ -2323,54 +2325,6 @@
     out.mainScript = ($('#mainScript') || {}).src || null;
     out.notification = typeof window.Notification;
     out.siteListened = { listened: $$('.content .left .vis.listened').length, vis: $$('.content .left .vis').length, tracks: tracks.length, siteHeard: tracks.filter((t) => t.siteHeard).length, mine: tracks.filter((t) => heard.has(t.id)).length, pagesLoaded: pages.first + '-' + pages.last };
-    // estado de los módulos de Soundeo (RequireJS): cuál ha fallado y por qué
-    try {
-      const c = window.requirejs && window.requirejs.s.contexts._;
-      out.rjsDefined = Object.keys(c.defined);
-      out.rjsPending = Object.keys(c.registry).map((k) => {
-        const m = c.registry[k];
-        return k + (m.error ? ' ERR:' + short(m.error.message || m.error, 160) : '') +
-          (m.depMaps ? ' deps:' + m.depMaps.map((d) => d && d.id).join(',') : '') + (m.depCount != null ? ' dc:' + m.depCount : '');
-      });
-    } catch (e) { out.rjsErr = String(e); }
-    // trozos del código de Soundeo: módulo de descargas y módulo "application"
-    if (out.mainScript) {
-      try {
-        const r = await fetch(out.mainScript, { mode: 'cors', credentials: 'omit' });
-        const js = await r.text();
-        out.appJsLen = js.length;
-        const grab = (needle, before, after) => {
-          const k = js.indexOf(needle);
-          return k < 0 ? null : js.slice(Math.max(0, k - before), Math.min(js.length, k + after));
-        };
-        const wins = [];
-        const re = /listened/g;
-        let m;
-        while ((m = re.exec(js)) && wins.length < 4) {
-          if (wins.length && m.index < wins[wins.length - 1][1]) continue;
-          wins.push([Math.max(0, m.index - 900), m.index + 500]);
-        }
-        out.jsListened = wins.map(([a, z]) => js.slice(a, z));
-        const lt = js.search(/loadTrack|trackData\s*=|\/tracks\/(info|data|play|listen)/);
-        out.jsLoadTrack = lt < 0 ? null : js.slice(Math.max(0, lt - 400), lt + 1400);
-        const pr = js.search(/processResponse\s*[=:]\s*function/);
-        out.jsProcessResponse = pr < 0 ? null : js.slice(pr, pr + 1500);
-        const aj = js.search(/[.,{]ajax\s*[=:]\s*function/);
-        out.jsAjax = aj < 0 ? null : js.slice(aj, aj + 1500);
-        const nt = js.indexOf('Notification');
-        out.jsNotification = nt < 0 ? null : js.slice(Math.max(0, nt - 500), nt + 500);
-      } catch (e) { out.appJsErr = String(e); }
-    }
-    try {
-      const jq = window.jQuery;
-      const ev = jq && jq._data && jq._data(document, 'events');
-      if (ev) {
-        const src = (h) => String(h.handler || '').replace(/\s+/g, ' ').slice(0, 1800);
-        const pick = (type, re) => (ev[type] || []).filter((h) => !re || re.test(h.selector || '')).map(src);
-        out.hDlClick = pick('click', /download/);
-        out.hDownload = pick('download');
-      }
-    } catch (e) { out.handlersErr = String(e); }
     if (t) {
       const fb = origFav(t);
       out.favBtn = fb ? fb.outerHTML : null;
@@ -2387,14 +2341,96 @@
         out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 500), k + 500) : src.slice(0, 1000);
       } catch (e) { out.trackErr = String(e); }
     }
-    const txt = JSON.stringify(out, null, 1);
+    showDiag('Diagnóstico', JSON.stringify(out, null, 1));
+  }
+  function showDiag(title, txt) {
     const s = $('.s-action', root);
-    $('h2', s).textContent = 'Diagnóstico';
+    $('h2', s).textContent = title;
     const b = $('.sb', s);
-    b.innerHTML = '<div class="note" style="margin-top:0">Copia esto y pégamelo en el chat si algo no funciona (no incluye contraseñas ni cookies).</div><textarea class="diag" readonly></textarea><div class="stack"><button class="btn pri full bcopy">Copiar</button></div>';
+    b.innerHTML = '<div class="note" style="margin-top:0">Copia esto y pégamelo en el chat (no incluye contraseñas ni cookies).</div><textarea class="diag" readonly></textarea><div class="stack"><button class="btn pri full bcopy">Copiar</button></div>';
     $('textarea', b).value = txt;
     $('.bcopy', b).addEventListener('click', () => copyText(txt));
     openSheet('s-action');
+  }
+
+  // Sonda de navegación: mira cómo son las páginas de búsqueda, artista, sello, release y seguidos
+  // de Soundeo (solo su estructura) para poder construir esas vistas dentro de la app.
+  async function navProbe() {
+    const t = current || deck[activeIdx] || tracks[0];
+    if (!t) { toast('Abre primero una lista con tracks'); return; }
+    toast('Analizando páginas de Soundeo…');
+    const out = { v: VERSION, probe: 'nav', track: { id: t.id, artist: t.artist, label: t.label, labelId: t.labelId || null } };
+    const sig = (n) => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') +
+      (typeof n.className === 'string' && n.className.trim() ? '.' + n.className.trim().split(/\s+/).slice(0, 4).join('.') : '');
+    const tally = (nodes) => {
+      const m = {};
+      nodes.forEach((n) => { const k = sig(n); m[k] = (m[k] || 0) + 1; });
+      return Object.keys(m).slice(0, 24).map((k) => (m[k] > 1 ? k + ' ×' + m[k] : k));
+    };
+    const look = async (name, url, extra) => {
+      const o = { url: url.replace(location.origin, '') };
+      out[name] = o;
+      try {
+        const r = await fetch(url, { credentials: 'include' });
+        o.status = r.status;
+        if (r.url && r.url !== url) o.final = r.url.replace(location.origin, '');
+        const html = await r.text();
+        o.len = html.length;
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        o.title = short(doc.title, 90);
+        const left = $('.content .left', doc) || $('.content', doc) || doc.body;
+        o.root = sig(left);
+        o.heads = $$('h1,h2,h3', left).slice(0, 8).map((h) => h.tagName + ': ' + short(h.textContent, 60));
+        o.tracks = $$('.trackitem[data-track-id]', left).length;
+        o.pagination = !!$('.pagination', left);
+        const kids = Array.from(left.children);
+        o.children = tally(kids);
+        o.inner = tally(kids.filter((c) => !c.classList.contains('trackitem')).flatMap((c) => Array.from(c.children)).filter((n) => !n.classList.contains('trackitem')));
+        // enlaces que no son de un track, agrupados por forma
+        const links = {};
+        $$('a[href]', left).forEach((a) => {
+          if (a.closest('.trackitem') || a.closest('.pagination')) return;
+          const h = a.getAttribute('href') || '';
+          const k = h.replace(/^https?:\/\/[^/]+/, '').replace(/=[^&]*/g, '=…').replace(/\/[^/?]+\.html.*$/, '/….html').replace(/\d+/g, 'N').slice(0, 70);
+          (links[k] = links[k] || []).push(short(a.textContent, 40) + ' → ' + short(h, 110));
+        });
+        o.links = Object.keys(links).slice(0, 16).map((k) => ({ k, n: links[k].length, ej: links[k].slice(0, 2) }));
+        // botones de seguir / favorito que no son de un track
+        o.follow = $$('[class*="follow"],[class*="favor"],[class*="subscr"],[data-artist-id],[data-label-id]', doc)
+          .filter((n) => !n.closest('.trackitem') && !/^(html|body|i)$/i.test(n.tagName)).slice(0, 8).map((n) => short(n.outerHTML, 420));
+        // primer bloque que no es un track (cabecera de artista/sello/release, resultado de búsqueda…)
+        const first = kids.find((c) => !c.classList.contains('trackitem') && !/^(h1|script|style)$/i.test(c.tagName) && !c.querySelector('.trackitem') && clean(c.textContent).length > 3);
+        o.sample = first ? short(first.outerHTML, 900) : null;
+        if (extra) extra(doc, left, o);
+      } catch (e) { o.err = String(e); }
+      return o;
+    };
+    // menús de la web (fuera del contenido)
+    const seen = new Set();
+    out.menu = $$('a[href]').filter((a) => !a.closest('.content') && !a.closest('#sx-host')).map((a) => {
+      const h = (a.getAttribute('href') || '').replace(location.origin, '');
+      return short(a.textContent, 28) + ' → ' + short(h, 70);
+    }).filter((x) => !/→ (#|javascript:)?$/.test(x) && !seen.has(x) && seen.add(x)).slice(0, 45);
+    out.forms = $$('form').filter((f) => !f.closest('#sx-host')).slice(0, 4).map((f) => ({
+      action: f.getAttribute('action'), method: f.getAttribute('method'), fields: $$('input,select', f).slice(0, 8).map((x) => (x.name || x.id || '?') + ':' + (x.type || x.tagName.toLowerCase())),
+    }));
+    const artist1 = clean(String(t.artist || '').split(/,|&| feat| vs /i)[0]) || t.name;
+    let artistHref = '';
+    if (t.trackUrl) await look('trackPage', t.trackUrl, (doc, left, o) => {
+      o.artists = $$('a[href*="artistFilter="]', left).slice(0, 6).map((a) => short(a.textContent, 40) + ' → ' + short(a.getAttribute('href'), 110));
+      const a = $$('a[href*="artistFilter="]', left).find((x) => /artistFilter=\d/.test(x.getAttribute('href')));
+      if (a) artistHref = absHref(a);
+      o.artistBox = short(($('.full-artist-link', left) || {}).outerHTML || '', 600) || null;
+    });
+    if (artistHref) await look('artist', artistHref);
+    if (t.labelId) await look('label', buildListUrl({ available: '1', label: t.labelId, genres: [], time: '0' }));
+    if (t.releaseUrl) await look('release', t.releaseUrl, (doc, left, o) => {
+      const ti = $('.trackitem[data-track-id]', left);
+      o.item = ti ? short(ti.outerHTML, 1100) : null;
+    });
+    await look('search', location.origin + '/search?q=' + encodeURIComponent(artist1));
+    await look('followed', location.origin + '/account/followed');
+    showDiag('Diagnóstico de navegación', JSON.stringify(out, null, 1));
   }
 
   /* ───────────── toasts y contadores ───────────── */
