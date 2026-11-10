@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.2';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -491,7 +491,7 @@
   button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;-webkit-appearance:none;appearance:none;touch-action:manipulation;}
   svg{width:100%;height:100%;display:block;}
   .root{--bg:#0b0b0e;--fg:#f5f5f7;--mut:rgba(245,245,247,.62);--dim:rgba(245,245,247,.38);--line:rgba(255,255,255,.1);
-    --glass:rgba(255,255,255,.09);--glass2:rgba(255,255,255,.16);--acc:#2ea8ff;--gold:#ffc83d;--ok:#34d27b;
+    --glass:rgba(255,255,255,.13);--glass2:rgba(255,255,255,.2);--acc:#2ea8ff;--gold:#ffc83d;--ok:#34d27b;
     --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);
     --top:calc(var(--st) + 54px);--ctrl:calc(var(--sb) + 118px);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
@@ -504,29 +504,21 @@
     background:linear-gradient(to bottom,rgba(0,0,0,.62),rgba(0,0,0,0));pointer-events:none;}
   .app[data-view=list] .topbar{background:rgba(11,11,14,.94);-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line);}
   .topbar>*{pointer-events:auto;}
-  .seg{display:flex;background:var(--glass);border-radius:999px;padding:3px;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+  .seg{display:flex;background:var(--glass);border-radius:999px;padding:3px;}
   .seg button{padding:7px 15px;border-radius:999px;font-size:14px;font-weight:600;color:var(--mut);}
   .seg button.on{background:var(--fg);color:#000;}
   .tb-sp{flex:1;}
-  .pill{display:flex;align-items:center;gap:5px;height:34px;padding:0 11px;border-radius:999px;background:var(--glass);font-size:13px;font-weight:600;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+  .pill{display:flex;align-items:center;gap:5px;height:34px;padding:0 11px;border-radius:999px;background:var(--glass);font-size:13px;font-weight:600;}
   .pill i{width:16px;height:16px;display:block;}
   .pill.zero{color:#ff8a7a;}
-  .ibtn{width:38px;height:38px;border-radius:50%;background:var(--glass);display:grid;place-items:center;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+  .ibtn{width:38px;height:38px;border-radius:50%;background:var(--glass);display:grid;place-items:center;}
   .ibtn i{width:21px;height:21px;display:block;}
 
   /* feed */
-  .feed{position:absolute;inset:0;z-index:2;display:flex;background:var(--bg);overflow-x:scroll;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;touch-action:pan-x;}
+  .feed{position:absolute;inset:0;display:flex;overflow-x:scroll;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;touch-action:pan-x;}
   .feed::-webkit-scrollbar{display:none;}
   .app[data-view=list] .feed,.app[data-view=list] .controls{display:none;}
   .card{position:relative;flex:0 0 100%;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
-  /* gesto de bajar: el feed se arrastra y debajo asoma la lista */
-  .app.peek .list{display:block;}
-  .app.peek .feed{box-shadow:0 -12px 40px rgba(0,0,0,.6);border-radius:18px 18px 0 0;}
-  .app.peek .topbar{background:rgba(11,11,14,.94);border-bottom:1px solid var(--line);}
-  .app.dragging .feed,.app.dragging .controls{transition:none;will-change:transform;}
-  .app.settle .feed,.app.settle .controls{transition:transform .24s cubic-bezier(.2,.8,.2,1);}
-  .app.rise .feed,.app.rise .controls{animation:rise .28s cubic-bezier(.2,.8,.2,1);}
-  @keyframes rise{from{transform:translateY(100%)}to{transform:none}}
   .bg{position:absolute;inset:-12%;background-size:cover;background-position:center;filter:blur(38px) saturate(1.5) brightness(.55);transform:translateZ(0);opacity:0;transition:opacity .35s;}
   .bg.on{opacity:1;}
   .card::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.15) 0%,rgba(0,0,0,0) 30%,rgba(0,0,0,.45) 75%,rgba(0,0,0,.7) 100%);pointer-events:none;}
@@ -541,7 +533,7 @@
   .cvw{position:relative;align-self:center;width:var(--cv,min(76vw,300px));height:var(--cv,min(76vw,300px));border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);background:#222;flex:none;}
   .cvw img{width:100%;height:100%;object-fit:cover;display:block;}
   .pind{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.28);opacity:0;transition:opacity .2s;pointer-events:none;}
-  .pind i{width:64px;height:64px;display:block;padding:15px;border-radius:50%;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);}
+  .pind i{width:64px;height:64px;display:block;padding:15px;border-radius:50%;background:rgba(0,0,0,.45);}
   .card.paused .pind{opacity:1;}
   .eq{position:absolute;right:10px;bottom:10px;display:flex;gap:3px;align-items:flex-end;height:18px;opacity:0;transition:opacity .2s;}
   .card.playing .eq{opacity:1;}
@@ -556,7 +548,7 @@
   .mix{font-size:15px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .mix:empty{display:none;}
   .rail{flex:none;display:flex;flex-direction:column;gap:10px;}
-  .rbtn{width:50px;height:50px;border-radius:50%;background:var(--glass);display:grid;place-items:center;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+  .rbtn{width:50px;height:50px;border-radius:50%;background:var(--glass);display:grid;place-items:center;}
   .rbtn i{width:24px;height:24px;display:block;}
   .rbtn.fav.on{background:var(--gold);color:#1a1300;}
   .rbtn.done{color:var(--ok);}
@@ -600,7 +592,7 @@
   @keyframes pulse{50%{opacity:.6}}
 
   /* lista */
-  .list{position:absolute;inset:0;z-index:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) 0 calc(var(--sb) + 96px);display:none;overscroll-behavior:contain;}
+  .list{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) 0 calc(var(--sb) + 96px);display:none;overscroll-behavior:contain;}
   .app[data-view=list] .list{display:block;}
   .lhead{padding:12px 16px 6px;}
   .fsum{width:100%;text-align:left;background:var(--glass);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;}
@@ -885,20 +877,12 @@
     if (r && playing) listEl.scrollTop = Math.max(0, r.offsetTop - (listEl.clientHeight - r.offsetHeight) / 2);
     else listEl.scrollTop = 0;
   }
-  let riseT = 0;
-  function setView(v, instant, prepared) {
-    const prev = view;
+  function setView(v) {
     view = v === 'list' ? 'list' : 'feed';
     app.dataset.view = view;
     $$('.seg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
     SS.set('view', view);
     if (view === 'feed') {
-      if (prev === 'list' && !instant && isOpen) {
-        // el feed sube desde abajo con la lista todavía detrás
-        clearTimeout(riseT);
-        app.classList.add('peek', 'rise');
-        riseT = setTimeout(() => app.classList.remove('peek', 'rise'), 300);
-      }
       feedJump(activeIdx);
       requestAnimationFrame(() => {
         layoutCards();
@@ -906,9 +890,7 @@
         onActive(activeIdx, true);
       });
     } else {
-      clearTimeout(riseT);
-      app.classList.remove('rise');
-      if (!prepared) { app.classList.remove('peek'); prepList(); }
+      prepList();
     }
     syncHash();
   }
@@ -918,34 +900,13 @@
   function setupGestures() {
     const EDGE = 20;
     let g = null;
-    let endT = 0;
-    const setY = (y) => {
-      const tr = y ? 'translate3d(0,' + Math.round(y) + 'px,0)' : '';
-      feedEl.style.transform = tr;
-      ctrlEl.style.transform = tr;
-    };
-    const finish = (toList) => {
-      app.classList.remove('dragging');
-      app.classList.add('settle');
-      void feedEl.offsetHeight; // que la transición salga desde donde está el dedo
-      setY(toList ? feedEl.clientHeight : 0);
-      clearTimeout(endT);
-      endT = setTimeout(() => {
-        if (toList) {
-          setView('list', true, true);
-          if (!dayComplete(listDay) && !pages.loading) loadMore();
-        }
-        app.classList.remove('settle', 'peek');
-        setY(0);
-      }, 250);
-    };
     const start = (e) => {
       g = null;
-      if (e.touches.length !== 1 || view !== 'feed' || app.classList.contains('settle') || (e.target.closest && e.target.closest('.bar'))) return;
+      if (e.touches.length !== 1 || view !== 'feed' || (e.target.closest && e.target.closest('.bar'))) return;
       const t = e.touches[0];
       const inFeed = e.currentTarget === feedEl;
       const edge = inFeed && (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE);
-      g = { x: t.clientX, y: t.clientY, t: performance.now(), mode: '', dx: 0, dy: 0, manual: edge || !inFeed };
+      g = { x: t.clientX, y: t.clientY, mode: '', dx: 0, dy: 0, manual: edge || !inFeed };
       // en el borde de la pantalla Safari tiene su gesto de "atrás": lo evitamos y pasamos de canción nosotros
       if (edge && e.cancelable) e.preventDefault();
     };
@@ -958,31 +919,21 @@
         const ax = Math.abs(g.dx);
         const ay = Math.abs(g.dy);
         if (ax < 10 && ay < 10) return;
-        if (ay > ax * 1.3) {
-          if (g.dy < 0) { g.mode = 'n'; return; }
-          g.mode = 'y';
-          clearTimeout(riseT);
-          app.classList.remove('rise');
-          app.classList.add('peek', 'dragging');
-          prepList();
-        } else if (g.manual) g.mode = 'x';
-        else { g.mode = 'n'; return; } // horizontal dentro del feed: lo hace el scroll nativo
+        if (ay > ax * 1.3) g.mode = g.dy > 0 ? 'y' : 'n';
+        else g.mode = g.manual ? 'x' : 'n'; // horizontal dentro del feed: lo hace el scroll nativo
+        if (g.mode === 'n') return;
       }
       if (e.cancelable) e.preventDefault();
-      if (g.mode === 'y') setY(Math.max(0, g.dy));
+      // hacia abajo: en cuanto el dedo baja lo suficiente, a la lista (sin animaciones)
+      if (g.mode === 'y' && g.dy > 64) { g.mode = 'done'; setView('list'); }
     };
     const end = (e) => {
       const q = g;
       g = null;
       if (!q || !q.mode || q.mode === 'n') return;
       if (e.cancelable) e.preventDefault(); // que no cuente como toque en un botón
-      const ok = e.type === 'touchend';
-      if (q.mode === 'y') {
-        const v = q.dy / Math.max(1, performance.now() - q.t);
-        finish(ok && (q.dy > 110 || (q.dy > 45 && v > 0.55)));
-      } else if (ok && Math.abs(q.dx) > 45) {
-        step(q.dx < 0 ? 1 : -1, false);
-      }
+      if (q.mode === 'y' && e.type === 'touchend' && q.dy > 36) setView('list');
+      else if (q.mode === 'x' && e.type === 'touchend' && Math.abs(q.dx) > 45) step(q.dx < 0 ? 1 : -1, false);
     };
     [feedEl, ctrlEl].forEach((n) => {
       n.addEventListener('touchstart', start, { passive: false });
@@ -1669,7 +1620,7 @@
   onAudio('timeupdate', () => {
     const now = performance.now();
     if (now - lastProgPaint > 200) { lastProgPaint = now; paintProgress(); }
-    if (current && audio.currentTime >= 4) markHeard(current.id);
+    if (current && audio.currentTime >= 0.5) markHeard(current.id);
     if (wantPlay && audio.currentTime >= 1) preloadNext();
   });
   onAudio('ended', () => {
@@ -2163,7 +2114,7 @@
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
       <div class="tg"><div><b>Precargar la siguiente canción</b><small>Al pasar de canción empieza a sonar antes. Gasta algo más de datos</small></div><button class="sw" data-p="preload"></button></div>
-      <div class="tg"><div><b>Feed: solo lo que no he escuchado</b><small>Oculta los tracks que ya sonaron ≥ 4 s</small></div><button class="sw" data-p="skipHeard"></button></div>
+      <div class="tg"><div><b>Feed: solo lo que no he escuchado</b><small>Oculta los tracks que ya han sonado</small></div><button class="sw" data-p="skipHeard"></button></div>
       <div class="tg"><div><b>Sincronizar escuchadas con la web</b><small>Lo que Soundeo marca como escuchado cuenta aquí, y lo que escuchas aquí se marca en Soundeo</small></div><button class="sw" data-p="siteHeard"></button></div>
       <div class="tg"><div><b>Confirmar antes de descargar</b><small>Para no gastar descargas sin querer</small></div><button class="sw" data-p="confirmDownload"></button></div>
 
