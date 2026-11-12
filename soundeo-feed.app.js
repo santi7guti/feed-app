@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.2.2';
+  const VERSION = '1.3.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -57,6 +57,7 @@
     autoOpen: true,
     preload: true,
     startSection: 'avail',
+    immersive: false,
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
@@ -259,6 +260,20 @@
     try { return matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 820; } catch (e) { return false; }
   };
   const isLoggedIn = () => !!$('#top-menu-logout, a[href*="/account/logout"]');
+  // Solo se da por «sin sesión» si además se ve por dónde entrar (para no avisar en falso si Soundeo cambia su cabecera).
+  const looksLoggedOut = () => !isLoggedIn() && !!$('#top-menu-login, a[href*="/account/logon"], a[href*="/account/login"], a[href*="/login"], a[href*="/account/register"], form[action*="logon"], form[action*="login"], input[type="password"]');
+  // Aviso sobre la web normal (cuando la app no está abierta).
+  function pageNotice(msg, ms, top) {
+    try {
+      const d = document.createElement('div');
+      d.className = 'sx-notice';
+      d.textContent = 'Soundeo Feed: ' + msg;
+      d.style.cssText = 'position:fixed;left:10px;right:10px;' + (top ? 'top:8px' : 'bottom:calc(env(safe-area-inset-bottom,0px) + 14px)') + ';z-index:2147483647;background:#111;color:#fff;font:600 14px/1.35 -apple-system,sans-serif;padding:12px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.4);text-align:center';
+      d.addEventListener('click', () => d.remove());
+      (document.body || document.documentElement).appendChild(d);
+      setTimeout(() => d.remove(), ms || 9000);
+    } catch (e) {}
+  }
 
   /* ───────────────────────── portadas ───────────────────────── */
   const COVER_RE = /-(\d{2,4})(\.(?:jpe?g|png|webp))(\?.*)?$/i;
@@ -330,6 +345,21 @@
   const absUrl = (v, base) => { if (!v) return ''; try { return new URL(v, base || location.href).href; } catch (e) { return v; } };
   const absHref = (a, base) => (a ? absUrl(a.getAttribute('href'), base) : '');
   const paramOf = (url, name) => { try { return new URL(url, location.href).searchParams.get(name) || ''; } catch (e) { return ''; } };
+  // Botón de voto de Soundeo: <div class="vote"><button class="ico"></button><span class="number">3 | </span><span class="link">Vote</span></div>
+  const voteShapes = new Map(); // formas distintas que se han visto (para el diagnóstico)
+  // ¿Se ha visto alguna vez en la página un voto ya dado? Entonces la página manda sobre lo que recuerda la app.
+  let voteDetect = LS.get('voteDetect', false);
+  function readVote(vEl) {
+    const numEl = $('.number', vEl);
+    const m = clean(numEl ? numEl.textContent : vEl.textContent).match(/\d+/);
+    const link = clean(($('.link', vEl) || {}).textContent || '');
+    const cls = clean([vEl].concat($$('*', vEl)).map((x) => x.getAttribute('class') || '').join(' '));
+    const on = /(^|\s)(voted|unvote|active|selected|checked|on)(\s|$)/i.test(cls) || /voted|unvote|remove|cancel/i.test(link);
+    if (on && !voteDetect) { voteDetect = true; LS.set('voteDetect', true); }
+    const sig = cls + '|' + link;
+    if (!voteShapes.has(sig) && voteShapes.size < 4) voteShapes.set(sig, vEl.outerHTML.replace(/\s+/g, ' ').slice(0, 260));
+    return { n: m ? +m[0] : null, on };
+  }
   function parseItem(node, day, folder, base, forcedId) {
     const id = forcedId || node.getAttribute('data-track-id');
     const titleA = $('.info strong a', node) || $('a[href*="/track/"]', node) || $('.info a', node);
@@ -345,6 +375,8 @@
     const btn = $('button.action[data-track-url]', node) || $('[data-track-url]', node);
     const dlWrap = $('.download', node);
     const time = $('.info time', node) || $('time', node);
+    const vEl = $('.vote', node);
+    const vInfo = vEl ? readVote(vEl) : null;
     return {
       id,
       full,
@@ -372,7 +404,9 @@
       siteDownloaded: !!(dlWrap && dlWrap.className.replace(/\bdownload\b/, '').trim()),
       siteHeard: !!$('.vis.listened', node),
       fav: !!$('button.favorites.favored', node),
-      vote: !!$('.vote', node),
+      vote: !!vEl,
+      votes: vInfo ? vInfo.n : null,
+      voted: vInfo ? vInfo.on : false,
     };
   }
   // Tracks de una página de Soundeo (la que está abierta o una traída por fetch).
@@ -479,6 +513,11 @@
           if (m.b || m.k) { metaCache[id] = m; saveMeta(); if (t) paintMeta(t); }
         }
         if (tr.hasOwnProperty('favored') && !favPending.has(id)) { setFavKnown(id, !!tr.favored, t); repaintFav(id); }
+        if (t && t.vote && !votePending.has(id)) {
+          const vn = toInt(tr.votes);
+          const vo = typeof tr.voted === 'boolean' ? tr.voted : null;
+          if (vn != null || vo != null) { setVoteKnown(t, vo != null ? vo : isVoted(t), vn != null ? vn : votesOf(t)); repaintVote(id); }
+        }
       }).catch(() => {});
     } catch (e) {}
   }
@@ -618,6 +657,8 @@
     disc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>',
     tag: '<svg viewBox="0 0 24 24"><path d="M4.5 12.6V5.5a1 1 0 0 1 1-1h7.1l7 7a1 1 0 0 1 0 1.4l-6.7 6.7a1 1 0 0 1-1.4 0z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="8.6" cy="8.6" r="1.3" fill="currentColor"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 7.6V12l3 2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    heart: '<svg viewBox="0 0 24 24"><path d="M12 20.2C7.3 16.5 4 13.6 4 9.9c0-2.5 1.9-4.4 4.3-4.4 1.5 0 2.8.7 3.7 1.9.9-1.2 2.2-1.9 3.7-1.9 2.4 0 4.3 1.9 4.3 4.4 0 3.7-3.3 6.6-8 10.3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>',
+    heartOn: '<svg viewBox="0 0 24 24"><path d="M12 20.2C7.3 16.5 4 13.6 4 9.9c0-2.5 1.9-4.4 4.3-4.4 1.5 0 2.8.7 3.7 1.9.9-1.2 2.2-1.9 3.7-1.9 2.4 0 4.3 1.9 4.3 4.4 0 3.7-3.3 6.6-8 10.3z" fill="currentColor" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>',
     feed: '<svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 9.6v4.8l4-2.4z" fill="currentColor"/></svg>',
   };
 
@@ -625,6 +666,9 @@
   const PAGE_CSS = `
     #sx-host{position:fixed;left:0;top:0;width:0;height:0;z-index:2147483000;}
     html.sx-open,html.sx-open body{overflow:hidden!important;height:100%!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;padding:0!important;overscroll-behavior:none!important;background:#0b0b0e!important;}
+    html.sx-open.sx-imm{overflow-x:hidden!important;overflow-y:scroll!important;height:auto!important;scrollbar-width:none!important;}
+    html.sx-open.sx-imm::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+    html.sx-open.sx-imm body{overflow:visible!important;height:auto!important;min-height:calc(100vh + 60000px)!important;}
     html.sx-open body>*:not(#sx-host):not(.ui-dialog):not(.ui-widget-overlay):not(.ui-autocomplete){display:none!important;}
     html.sx-open .ui-widget-overlay{position:fixed!important;inset:0!important;z-index:2147483600!important;}
     html.sx-open .ui-dialog{position:fixed!important;z-index:2147483601!important;top:50%!important;left:50%!important;transform:translate(-50%,-50%)!important;max-width:92vw!important;}
@@ -636,7 +680,7 @@
   button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;-webkit-appearance:none;appearance:none;touch-action:manipulation;}
   svg{width:100%;height:100%;display:block;}
   .root{--bg:#0b0b0e;--fg:#f5f5f7;--mut:rgba(245,245,247,.62);--dim:rgba(245,245,247,.38);--line:rgba(255,255,255,.1);
-    --glass:rgba(255,255,255,.13);--glass2:rgba(255,255,255,.2);--acc:#2ea8ff;--gold:#ffc83d;--ok:#34d27b;
+    --glass:rgba(255,255,255,.13);--glass2:rgba(255,255,255,.2);--acc:#2ea8ff;--gold:#ffc83d;--ok:#34d27b;--like:#ff4d6d;
     --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);--sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
     --top:calc(var(--st) + 54px);--ctrl:calc(var(--sb) + 118px);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
@@ -656,6 +700,10 @@
   .pill{display:flex;align-items:center;gap:5px;height:34px;padding:0 11px;border-radius:999px;background:var(--glass);font-size:13px;font-weight:600;}
   .pill i{width:16px;height:16px;display:block;}
   .pill.zero{color:#ff8a7a;}
+  .pill .vl{display:none;align-items:center;gap:2px;font-size:11px;font-weight:700;color:var(--mut);margin-right:3px;padding-right:7px;border-right:1px solid rgba(255,255,255,.16);height:14px;}
+  .pill .vl i{width:11px;height:11px;}
+  .pill.hasv .vl{display:flex;}
+  .pill .vl.zero{color:#ff8a7a;}
   @media (max-width:374px){.dlleft{display:none;}}
   .ibtn{width:38px;height:38px;border-radius:50%;background:var(--glass);display:grid;place-items:center;}
   .ibtn i{width:21px;height:21px;display:block;}
@@ -663,6 +711,9 @@
   /* feed */
   .feed{position:absolute;inset:0;display:flex;overflow-x:scroll;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;touch-action:pan-x;}
   .feed::-webkit-scrollbar{display:none;}
+  .root.imm .feed{overscroll-behavior:contain auto;}
+  .root.imm.imm-armed .feed{touch-action:pan-x pan-y;}
+  .sap{position:absolute;left:0;bottom:0;width:1px;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;}
   .app[data-view=list] .feed,.app[data-view=list] .controls{display:none;}
   .card{position:relative;flex:0 0 100%;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
   .card.ph{background:var(--bg);}
@@ -700,7 +751,11 @@
   .rbtn i{width:24px;height:24px;display:block;}
   .rbtn.fav.on{background:var(--gold);color:#1a1300;}
   .rbtn.done{color:var(--ok);}
-  .rbtn.vote{color:var(--acc);}
+  .rbtn.vote{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .rbtn.vote i{width:22px;height:22px;}
+  .rbtn.vote em{font-style:normal;font-size:10px;font-weight:700;line-height:1;margin:-1px 0 1px;color:var(--mut);font-variant-numeric:tabular-nums;}
+  .rbtn.vote.on{background:var(--like);color:#fff;}
+  .rbtn.vote.on em{color:#fff;}
   .rbtn:active{transform:scale(.92);}
   .art{font-size:17px;font-weight:600;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .rel{font-size:13.5px;color:var(--mut);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -775,6 +830,10 @@
   .rb i{width:22px;height:22px;display:block;}
   .rb.on{color:var(--gold);}
   .rb.done{color:var(--ok);}
+  .rb.rvote{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .rb.rvote i{width:21px;height:21px;}
+  .rb.rvote em{font-style:normal;font-size:9.5px;font-weight:700;line-height:1;margin-top:-1px;font-variant-numeric:tabular-nums;}
+  .rb.rvote.on{color:var(--like);}
   .pager{display:flex;gap:10px;padding:18px 16px 10px;}
   .pager .btn{flex:1;white-space:nowrap;padding:0 12px;}
   .pager .btn[disabled]{opacity:.35;}
@@ -816,7 +875,7 @@
   .sq{flex:1;min-width:0;height:42px;border-radius:12px;background:var(--glass);border:1px solid transparent;color:var(--fg);font:inherit;font-size:16px;padding:0 12px;outline:none;-webkit-appearance:none;appearance:none;}
   .sq:focus{border-color:var(--acc);}
   .sgo{height:42px;padding:0 14px;font-size:14.5px;border-radius:12px;}
-  .sbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 4px calc(var(--sb) + 20px);user-select:text;-webkit-user-select:text;}
+  .sbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px 4px calc(var(--sb) + 20px);user-select:text;-webkit-user-select:text;}
 
   /* hojas */
   .shade{position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s;}
@@ -970,7 +1029,11 @@
     // aislar teclas para que no disparen los atajos de Soundeo
     ['keydown', 'keypress', 'keyup'].forEach((ev) => host.addEventListener(ev, (e) => e.stopPropagation()));
     // al cerrar el teclado Safari puede dejar la página desplazada: devolverla a su sitio
-    host.addEventListener('focusout', () => setTimeout(() => { if (isOpen) window.scrollTo(0, 0); }, 60));
+    host.addEventListener('focusout', () => setTimeout(() => { if (isOpen && (!imm.on || imm.paused)) window.scrollTo(0, 0); }, 60));
+    // mientras se escribe (teclado abierto) la página vuelve a estar fija, como sin el modo inmersivo
+    const typing = () => { const a = sr.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
+    host.addEventListener('focusin', () => { if (typing()) immPause(true); });
+    host.addEventListener('focusout', () => setTimeout(() => { if (!typing()) immPause(false); }, 120));
 
     sr.innerHTML = `<style>${APP_CSS}</style>
       <div class="root">
@@ -981,7 +1044,7 @@
             <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
-            <button class="pill dlleft" title="Descargas restantes hoy">${i('dl')}<span>–</span></button>
+            <button class="pill dlleft" title="Likes y descargas que te quedan hoy"><span class="vl">${i('heart')}<b>–</b></span>${i('dl')}<span class="dlc">–</span></button>
             <button class="ibtn bsearch" aria-label="Buscar">${i('search')}</button>
             <button class="ibtn bset" aria-label="Ajustes">${i('sliders')}</button>
           </div>
@@ -1014,11 +1077,12 @@
             <div class="sbody"></div>
           </div>
           <div class="toasts"></div>
+          <div class="sap"></div>
           <div class="shade"></div>
           <div class="sheet s-settings"><div class="sh"><h2>Ajustes</h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div><div class="sf"></div></div>
           <div class="sheet s-action"><div class="sh"><h2></h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div></div>
         </div>
-        <button class="fab">${i('feed')}<span>Feed</span></button>
+        <button class="fab">${i('feed')}<span>Abrir Feed</span></button>
       </div>`;
     root = $('.root', sr);
     app = $('.app', sr);
@@ -1080,6 +1144,13 @@
     const resync = () => { if (!document.hidden && isOpen && view === 'feed') holdFeed(350); };
     document.addEventListener('visibilitychange', resync);
     window.addEventListener('pageshow', resync);
+    setupImmersive();
+    window.addEventListener('pageshow', (e) => {
+      if (!e.persisted || isOpen || !reopenOnReturn || !cur) return;
+      reopenOnReturn = false;
+      SS.del('closed');
+      openApp(view);
+    });
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
       const d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
@@ -1097,15 +1168,148 @@
     window.scrollTo(0, 0);
     setView(v || view);
     updateCounters();
+    immApply();
   }
-  function closeApp() {
+  // `away`: se cierra solo para enseñar una página de la web; al volver atrás la app se abre otra vez.
+  let reopenOnReturn = false;
+  function closeApp(away) {
     isOpen = false;
+    reopenOnReturn = !!away;
     SS.set('closed', 1);
     root.classList.remove('open');
+    immApply();
     document.documentElement.classList.remove('sx-open');
     vpMeta.restore();
     audio.pause();
     wantPlay = false;
+  }
+
+  /* ───────────── barra de Safari (modo inmersivo) ───────────── */
+  // El iPhone no deja a una web ponerse en pantalla completa, pero Safari encoge su barra cuando el usuario
+  // desliza LA PÁGINA hacia arriba (en horizontal, la esconde). Con este modo, la página que queda debajo de
+  // la app (vacía) se puede deslizar: un gesto hacia arriba encoge la barra y, hecho eso, se impide el gesto
+  // contrario (deslizar la página hacia abajo), que es lo que la haría volver. Tocar la barra la recupera.
+  //   armado    = el feed deja pasar el gesto vertical a la página (la barra está grande o no se sabe)
+  //   bloqueado = el feed vuelve a ser solo horizontal, como sin este modo (la barra ya está pequeña)
+  const imm = { on: false, paused: false, armed: false, y0: 0, h: 0, w: 0, sab: 0, t0: 0, lockT: 0, log: [] };
+  const immSab = () => { const p = root && $('.sap', root); return p ? p.offsetHeight : 0; };
+  function immLog(ev) {
+    let vv = null;
+    try { vv = window.visualViewport ? Math.round(window.visualViewport.height) : null; } catch (e) {}
+    imm.log.push({ t: Math.round((performance.now() - imm.t0) / 100) / 10, ev, y: Math.round(window.scrollY), ih: window.innerHeight, vv, sab: immSab() });
+    if (imm.log.length > 16) imm.log.shift();
+  }
+  function immArm(why) {
+    if (!imm.on || imm.paused) return;
+    clearTimeout(imm.lockT);
+    // de paso, volver al principio del recorrido si se está acabando (la barra está grande: no molesta)
+    if (window.scrollY > 36000) window.scrollTo(0, 0);
+    imm.y0 = window.scrollY;
+    if (imm.armed) return;
+    imm.armed = true;
+    root.classList.add('imm-armed');
+    immLog('armar:' + why);
+  }
+  function immLock() {
+    imm.armed = false;
+    root.classList.remove('imm-armed');
+    immLog('bloquear');
+    // cuando la barra termina de encogerse, apuntar cómo queda la pantalla para notar si vuelve a crecer
+    clearTimeout(imm.lockT);
+    imm.lockT = setTimeout(() => { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); immLog('medido'); }, 700);
+  }
+  // ¿Ha vuelto a salir la barra? (la pantalla útil se encoge o crece el margen inferior)
+  function immCheck() {
+    if (!imm.on || imm.armed || !imm.h) return;
+    if (window.innerWidth !== imm.w) { immArm('giro'); return; }
+    if (window.innerHeight < imm.h - 24 || immSab() > imm.sab + 8) immArm('barra');
+  }
+  // Fuera del feed: si el gesto movería la página hacia abajo (dedo bajando) y no hay una lista que lo absorba, se impide.
+  let immT = null;
+  const immScroller = (e) => {
+    const path = e.composedPath ? e.composedPath() : [];
+    for (const n of path) {
+      if (n === app) break;
+      if (!n || n.nodeType !== 1) continue;
+      if (n.scrollHeight > n.clientHeight + 1) {
+        const oy = getComputedStyle(n).overflowY;
+        if (oy === 'auto' || oy === 'scroll') return n;
+      }
+    }
+    return null;
+  };
+  const immStart = (e) => {
+    immT = null;
+    if (!imm.on || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const own = !!(e.target.closest && (e.target.closest('.feed') || e.target.closest('.controls')));
+    immT = { x: t.clientX, y: t.clientY, own, sc: own ? null : immScroller(e), block: false, dec: false };
+  };
+  const immMove = (e) => {
+    const q = immT;
+    if (!q || q.own || !imm.on) return; // feed y controles: lo decide setupGestures
+    if (q.block) { if (e.cancelable) e.preventDefault(); return; }
+    if (q.dec) return;
+    const t = e.touches[0];
+    const dx = t.clientX - q.x;
+    const dy = t.clientY - q.y;
+    if (!dx && !dy) return;
+    q.dec = true;
+    if (dy > 0 && dy >= Math.abs(dx) && !q.sc) { q.block = true; if (e.cancelable) e.preventDefault(); }
+  };
+  // Con el teclado abierto Safari mueve la página a su aire: se deja fija hasta que se cierra.
+  function immPause(p) {
+    if (!imm.on || imm.paused === p) return;
+    imm.paused = p;
+    document.documentElement.classList.toggle('sx-imm', !p);
+    immLog(p ? 'teclado' : 'sin teclado');
+    if (p) { clearTimeout(imm.lockT); imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; } else immArm('teclado');
+  }
+  function immApply() {
+    if (!root) return;
+    const want = isOpen && !!prefs.immersive && TOUCH;
+    document.documentElement.classList.toggle('sx-imm', want && !imm.paused);
+    root.classList.toggle('imm', want);
+    if (want === imm.on) return;
+    imm.paused = false;
+    imm.on = want;
+    if (want) {
+      imm.t0 = performance.now();
+      imm.log = [];
+      imm.armed = false;
+      imm.h = 0;
+      app.addEventListener('touchstart', immStart, { capture: true, passive: true });
+      app.addEventListener('touchmove', immMove, { capture: true, passive: false });
+      immArm('abrir');
+      const k = LS.get('immHint', 0);
+      if (k < 3) { LS.set('immHint', k + 1); setTimeout(() => { if (imm.on && imm.armed) toast('Desliza hacia arriba para esconder la barra de Safari'); }, 1500); }
+    } else {
+      clearTimeout(imm.lockT);
+      imm.armed = false;
+      root.classList.remove('imm-armed');
+      app.removeEventListener('touchstart', immStart, { capture: true });
+      app.removeEventListener('touchmove', immMove, { capture: true });
+      window.scrollTo(0, 0);
+    }
+  }
+  function setupImmersive() {
+    window.addEventListener('scroll', () => {
+      if (!imm.on || imm.paused) return;
+      const y = window.scrollY;
+      if (y < imm.y0) imm.y0 = y;
+      else if (imm.armed && y - imm.y0 >= 24) immLock();
+    }, { passive: true });
+    window.addEventListener('resize', immCheck);
+    window.addEventListener('orientationchange', () => immArm('giro'));
+    const back = () => { if (!document.hidden) immArm('volver'); };
+    document.addEventListener('visibilitychange', back);
+    window.addEventListener('pageshow', back);
+    try { if (window.visualViewport) window.visualViewport.addEventListener('resize', immCheck); } catch (e) {}
+    try {
+      const ro = new ResizeObserver(immCheck);
+      ro.observe(app);
+      ro.observe($('.sap', root));
+    } catch (e) {}
   }
   function switchView(v) {
     view = v === 'list' ? 'list' : 'feed';
@@ -1200,7 +1404,7 @@
       const t = e.touches[0];
       const inFeed = e.currentTarget === feedEl;
       const edge = inFeed && (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE);
-      g = { x: t.clientX, y: t.clientY, mode: '', dx: 0, dy: 0, manual: edge || !inFeed };
+      g = { x: t.clientX, y: t.clientY, mode: '', dx: 0, dy: 0, manual: edge || !inFeed, inFeed };
       // en el borde de la pantalla Safari tiene su gesto de "atrás": lo evitamos y pasamos de canción nosotros
       if (edge && e.cancelable) e.preventDefault();
     };
@@ -1212,9 +1416,13 @@
       if (!g.mode) {
         const ax = Math.abs(g.dx);
         const ay = Math.abs(g.dy);
+        // modo inmersivo: un dedo que baja movería la página hacia abajo y Safari volvería a sacar su barra
+        if (imm.on && (imm.armed || !g.inFeed) && g.dy > 0 && ay >= ax) { g.manual = true; if (e.cancelable) e.preventDefault(); }
         if (ax < 10 && ay < 10) return;
         if (ay > ax * 1.3) g.mode = g.dy > 0 ? 'y' : 'n';
         else g.mode = g.manual ? 'x' : 'n'; // horizontal dentro del feed: lo hace el scroll nativo
+        // hacia arriba con el feed bloqueado: por si la barra ha vuelto sin que se note, el siguiente gesto ya la esconde
+        if (g.mode === 'n' && ay > ax * 1.3 && imm.on && !imm.armed && g.inFeed) immArm('gesto');
         if (g.mode === 'n') return;
       }
       if (e.cancelable) e.preventDefault();
@@ -1719,7 +1927,7 @@
       const done = t.siteDownloaded || myDownloads.has(t.id);
       return `<button class="rbtn dl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>`;
     }
-    if (t.vote) return `<button class="rbtn vote" aria-label="Votar">${i('up')}</button>`;
+    if (t.vote) return `<button class="rbtn vote${isVoted(t) ? ' on' : ''}" aria-label="Me gusta">${voteInner(t)}</button>`;
     return '';
   }
   function metaChipKey(m) {
@@ -1788,7 +1996,7 @@
     on('.bretry', () => { ensureLoaded(s); adopt(s); });
     on('.bsh', () => { setHidden(new Set()); rebuild(deck[activeIdx - 1] || deck[0]); toast('Mostrando también las escuchadas'); });
     on('.btop', () => goTo(0, { instant: true }));
-    on('.bweb', () => { closeApp(); location.href = s.url; });
+    on('.bweb', () => { closeApp(true); location.href = s.url; });
     on('.bbk', goBack);
     return c;
   }
@@ -2119,7 +2327,7 @@
       `<img class="rc" alt="" loading="lazy" decoding="async" src="${esc(src)}" data-fb="${esc(t.cover)}">` +
       `<div class="rm"><div class="rt">${esc(t.name)}${t.mix ? ' <small>' + esc(t.mix) + '</small>' : ''}</div><div class="ra">${esc(t.artist)}</div><div class="rx">${esc(metaLine(t))}</div></div>` +
       `<button class="rb rfav${fav ? ' on' : ''}" aria-label="Guardar"><i>${fav ? ICON.starOn : ICON.star}</i></button>` +
-      (t.downloads.length ? `<button class="rb rdl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>` : t.vote ? `<button class="rb rvote" aria-label="Votar">${i('up')}</button>` : '') +
+      (t.downloads.length ? `<button class="rb rdl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>` : t.vote ? `<button class="rb rvote${isVoted(t) ? ' on' : ''}" aria-label="Me gusta">${voteInner(t)}</button>` : '') +
       '</div>';
   }
   const sourceSub = (s) => {
@@ -2181,8 +2389,8 @@
       <div class="stack" style="align-items:center">${s.error ? '<button class="btn pri bretry">Reintentar</button>' : ''}${!s.loading && s.url ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
     const on = (sel, fn) => { const b = $(sel, e); if (b) b.addEventListener('click', fn); };
     on('.bretry', () => { ensureLoaded(s); adopt(s); });
-    on('.bweb', () => { closeApp(); location.href = s.url; });
-    on('.bfed', () => { closeApp(); location.href = location.origin + '/account/followed/edit'; });
+    on('.bweb', () => { closeApp(true); location.href = s.url; });
+    on('.bfed', () => { closeApp(true); location.href = location.origin + '/account/followed/edit'; });
     return e;
   }
   const countText = (all) => {
@@ -2704,6 +2912,45 @@
 
   /* ───────────── favoritos / descargas / votos (mismas peticiones que hace la web de Soundeo) ───────────── */
   // botón de favorito de la página original (si el track está en ella), para que la web quede igual
+  const myVotes = new Set(LS.get('voted', []));
+  const votePending = new Map(); // id -> estado esperado mientras Soundeo responde
+  const voteKnown = new Map(); // id -> { on, n } último estado confirmado
+  const wasVoted = (t) => (voteKnown.has(t.id) ? voteKnown.get(t.id).on : !!(t.voted || (!voteDetect && myVotes.has(t.id))));
+  const isVoted = (t) => (votePending.has(t.id) ? votePending.get(t.id) : wasVoted(t));
+  function votesOf(t) {
+    const k = voteKnown.get(t.id);
+    const n = k && k.n != null ? k.n : t.votes;
+    if (n == null) return null;
+    if (!votePending.has(t.id)) return n;
+    const will = votePending.get(t.id);
+    return Math.max(0, n + (will === wasVoted(t) ? 0 : will ? 1 : -1));
+  }
+  function setVoteKnown(t, on, n) {
+    voteKnown.set(t.id, { on: !!on, n: n == null ? null : n });
+    if (on) myVotes.add(t.id); else myVotes.delete(t.id);
+    LS.set('voted', Array.from(myVotes).slice(-2000));
+  }
+  const fmtCount = (n) => (n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (Math.round(n / 100) / 10).toString().replace('.', ',') + 'k' : String(n));
+  function voteInner(t) {
+    const n = votesOf(t);
+    return i(isVoted(t) ? 'heartOn' : 'heart') + (n != null ? '<em>' + fmtCount(n) + '</em>' : '');
+  }
+  function paintVote(scope, t) {
+    const on = isVoted(t);
+    scope.querySelectorAll('.vote, .rvote').forEach((b) => {
+      b.classList.toggle('on', on);
+      b.innerHTML = voteInner(t);
+      b.setAttribute('aria-label', on ? 'Quitar me gusta' : 'Me gusta');
+    });
+  }
+  function repaintVote(id) {
+    const t = byId.get(id) || (current && current.id === id ? current : null);
+    if (!t) return;
+    const c = cardById(id);
+    if (c) paintVote(c, t);
+    const r = listRowById(id);
+    if (r) paintVote(r, t);
+  }
   const origFav = (t) => (/^\d+$/.test(t.id) ? $('button.favorites[data-track-id="' + t.id + '"]') : null);
   const favPending = new Map(); // id -> estado esperado mientras Soundeo responde
   const favKnown = new Map(); // id -> último estado confirmado (el mismo track puede estar en varias listas)
@@ -2944,9 +3191,20 @@
     const m = s.textContent.match(/\d+/);
     return m ? +m[0] : null;
   }
+  function voteLeft() {
+    const s = $('#span-votes');
+    if (!s) return null;
+    const m = s.textContent.match(/\d+/);
+    return m ? +m[0] : null;
+  }
   function dlLeftText() {
     const n = dlLeft();
-    return n == null ? 'No veo el contador de descargas' : 'Te quedan ' + n + ' descarga' + (n === 1 ? '' : 's') + ' hoy';
+    const v = voteLeft();
+    if (n == null && v == null) return 'No veo los contadores de Soundeo';
+    const parts = [];
+    if (n != null) parts.push(n + ' descarga' + (n === 1 ? '' : 's'));
+    if (v != null) parts.push(v + ' like' + (v === 1 ? '' : 's'));
+    return 'Te quedan ' + parts.join(' y ') + ' hoy';
   }
   const URLISH = /^(https?:\/\/|\/)[^\s<>"]+$/i;
   function startFileDownload(url) {
@@ -3030,17 +3288,68 @@
       (already ? 'Ya la descargaste antes. ' : '') + (n == null ? '' : n === 0 ? 'No te quedan descargas hoy.' : 'Te quedan ' + n + ' hoy.') +
       ' En el iPhone se guarda en Archivos → Descargas.', opts);
   }
+  const toInt = (x) => { const k = typeof x === 'number' ? x : typeof x === 'string' && /^\s*\d+\s*$/.test(x) ? parseInt(x, 10) : NaN; return isFinite(k) ? k : null; };
+  // ¿Cómo ha quedado el voto según la respuesta de Soundeo? Por orden de fiabilidad: lo que dice con palabras,
+  // si el contador de votos disponibles ha bajado o subido, un sí/no, y si no hay nada de eso se da por cambiado.
+  function votedFrom(r, before, left0, left1) {
+    const x = r.hasOwnProperty('voted') ? r.voted : r.result;
+    const txt = (typeof x === 'string' ? x : '') + ' ' + (r.flash && r.flash.message ? r.flash.message : '');
+    if (/unvot|remov|cancel|revok|withdr/i.test(txt)) return false;
+    if (typeof x === 'string' && /vot/i.test(x)) return true;
+    if (left0 != null && left1 != null && left0 !== left1) return left1 < left0;
+    if (typeof x === 'boolean') return x;
+    return !before;
+  }
+  const respError = (r) => {
+    if (!r) return 'Soundeo no ha respondido';
+    const bad = !r.success || (r.flash && /err|fail|warn|danger/i.test(String(r.flash.type || '')));
+    if (!bad) return '';
+    const m = plainMsg(r.message || (r.flash && r.flash.message) || '');
+    return m ? 'Soundeo dice: ' + m.slice(0, 110) : 'Soundeo no lo ha aceptado';
+  };
+  // Me gusta (el voto de Soundeo para que un track aún no publicado esté disponible). Tocar otra vez lo quita.
   function vote(t) {
+    if (votePending.has(t.id)) return;
+    const before = isVoted(t);
+    const n0 = votesOf(t);
+    const act = { type: 'vote', id: t.id, before, votesBefore: n0, leftBefore: voteLeft() };
+    lastAction = act;
+    votePending.set(t.id, !before);
+    repaintVote(t.id);
     startCapture('vote ' + t.id);
+    const done = (ok, on, n, msg) => {
+      votePending.delete(t.id);
+      if (ok) setVoteKnown(t, on, n);
+      act.ok = ok;
+      act.after = on;
+      act.votesAfter = n;
+      act.leftAfter = voteLeft();
+      repaintVote(t.id);
+      if (ok) toast(on === before ? (on ? 'Ya tenía tu me gusta' : 'Soundeo no ha cambiado el voto') : on ? 'Me gusta enviado' : 'Me gusta quitado');
+      else toast(msg || 'No se ha podido votar', 'Diagnóstico', diagnostics);
+    };
     siteRequest('/tracks/vote/' + encodeURIComponent(t.id), 'POST')
-      .then(({ r }) => {
-        lastAction = { type: 'vote', id: t.id, response: trimResp(r) };
+      .then(({ r, app }) => {
+        act.response = trimResp(r);
+        const err = respError(r);
+        if (err) {
+          try { app && app.processCookies && app.processCookies(r); } catch (e) {}
+          applyHeader(r);
+          return done(false, before, n0, err);
+        }
         applyHeader(r);
-        if (!r || !r.success) { toast(r && r.message ? 'Soundeo dice: ' + plainMsg(r.message).slice(0, 110) : 'Soundeo no ha aceptado el voto'); return; }
-        try { window.jQuery && r.hasOwnProperty('result') && window.jQuery(document).trigger('voted.track', { voted: r.result, votes: r.votes, trackId: Number(t.id) }); } catch (e) {}
-        toast(r.result === false ? 'Voto quitado' : 'Voto enviado' + (r.votes != null ? ' · ' + r.votes + ' votos' : ''));
+        const on = votedFrom(r, before, act.leftBefore, voteLeft());
+        let n = [r.votes, r.count, r.number, r.votesCount, r.votes_count].map(toInt).find((x) => x != null);
+        if (n == null && n0 != null) n = Math.max(0, n0 + (on === before ? 0 : on ? 1 : -1));
+        // que la web de Soundeo quede igual (su contador en la fila y su reproductor)
+        try {
+          const num = /^\d+$/.test(t.id) ? $('.vote[data-track-id="' + t.id + '"] .number') : null;
+          if (num && n != null) num.textContent = n + ' | ';
+          window.jQuery && window.jQuery(document).trigger('voted.track', { voted: on, votes: n, trackId: Number(t.id) });
+        } catch (e) {}
+        done(true, on, n == null ? null : n);
       })
-      .catch((e) => toast('Error al votar: ' + short(e && e.message, 80)));
+      .catch((e) => done(false, before, n0, 'Error al votar: ' + short(e && e.message, 80)));
   }
 
   /* ───────────── hojas ───────────── */
@@ -3078,8 +3387,8 @@
     if (t.genreId) opts.push({ label: t.genre, hint: 'Género · lo último disponible', icon: 'feed', fn: () => openGenre(t) });
     if (/^\d+$/.test(t.id)) opts.push({ label: 'Parecidas', hint: 'Lo que también descargan quienes bajan esta', icon: 'disc', fn: () => openSimilar(t) });
     opts.push({ label: 'Copiar nombre', hint: (t.artist ? t.artist + ' – ' : '') + t.name, icon: 'check', fn: () => copyText(t.full) });
-    if (t.trackUrl) opts.push({ label: 'Abrir en la web de Soundeo', icon: 'ext', fn: () => { closeApp(); location.href = t.trackUrl; } });
-    if (t.vote) opts.push({ label: 'Votar para que esté disponible', icon: 'up', fn: () => vote(t) });
+    if (t.trackUrl) opts.push({ label: 'Abrir en la web de Soundeo', icon: 'ext', fn: () => { closeApp(true); location.href = t.trackUrl; } });
+    if (t.vote) opts.push(isVoted(t) ? { label: 'Quitar me gusta', icon: 'heartOn', fn: () => vote(t) } : { label: 'Me gusta', hint: 'Vota para que esté disponible', icon: 'heart', fn: () => vote(t) });
     actionSheet(t.name, [t.artist, t.mix].filter(Boolean).join(' · '), '', opts);
     // si aún no sabemos quiénes son los artistas, pedirlo ya para que el toque sea inmediato
     if (!(m && m.ar)) getMeta(t, true, true);
@@ -3148,6 +3457,8 @@
       `}
       ${filterBlock}
       ${isStart ? '' : `
+      <div class="sec">Pantalla</div>
+      <div class="tg"><div><b>Esconder la barra de Safari</b><small>Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas</small></div><button class="sw" data-p="immersive"></button></div>
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
       <div class="tg"><div><b>Precargar las siguientes canciones</b><small>Empiezan a sonar al instante y se puede saltar por ellas sin esperar. Gasta más datos</small></div><button class="sw" data-p="preload"></button></div>
@@ -3255,6 +3566,7 @@
           rebuild(current || deck[activeIdx]);
         }
         if (p === 'preload' && !prefs.preload) dropPreloads();
+        if (p === 'immersive') { LS.set('immHint', 0); immApply(); }
       });
     });
     const paintSv = () => $$('.sv button', b).forEach((x) => x.classList.toggle('on', x.dataset.v === prefs.startView));
@@ -3328,7 +3640,13 @@
       },
       lastAction,
       capture: cap.items,
-      counters: { downloads: dlLeft(), favorites: favCount() },
+      counters: { downloads: dlLeft(), favorites: favCount(), votes: voteLeft() },
+      screen: {
+        imm: !!prefs.immersive, on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
+        vv: window.visualViewport ? Math.round(window.visualViewport.height) : null, sh: screen.height, sw: screen.width, sab: immSab(),
+        measured: imm.h ? { h: imm.h, w: imm.w, sab: imm.sab } : null, log: imm.log,
+      },
+      votes: { shapes: Array.from(voteShapes.values()), detect: voteDetect, mine: myVotes.size, votable: tracks.filter((x) => x.vote).length, voted: tracks.filter((x) => x.vote && isVoted(x)).length },
       siteListened: { tracks: tracks.length, siteHeard: tracks.filter((x) => x.siteHeard).length, mine: tracks.filter((x) => heard.has(x.id)).length, heardTotal: heard.size },
     };
     if (t) {
@@ -3370,8 +3688,12 @@
     if (!root) return;
     const n = dlLeft();
     const p = $('.dlleft', root);
-    $('span', p).textContent = n == null ? '–' : String(n);
+    $('.dlc', p).textContent = n == null ? '–' : String(n);
     p.classList.toggle('zero', n === 0);
+    const v = voteLeft();
+    p.classList.toggle('hasv', v != null);
+    $('.vl b', p).textContent = v == null ? '–' : String(v);
+    $('.vl', p).classList.toggle('zero', v === 0);
   }
   function watchSite() {
     const left = $('.content .left');
@@ -3388,7 +3710,7 @@
         ids.forEach((id) => id && repaintFav(id));
       }).observe(left, { subtree: true, attributes: true, attributeFilter: ['class'] });
     }
-    ['#span-downloads', '#span-favorites'].forEach((sel) => {
+    ['#span-downloads', '#span-favorites', '#span-votes'].forEach((sel) => {
       const n = $(sel);
       if (n) new MutationObserver(updateCounters).observe(n, { subtree: true, childList: true, characterData: true });
     });
@@ -3433,8 +3755,20 @@
     try { navType = (performance.getEntriesByType('navigation')[0] || {}).type || 'navigate'; } catch (e) {}
     const resume = navType === 'reload' || navType === 'back_forward';
     const fromOutside = navType === 'navigate' && !hs.view;
-    if (fromOutside && prefs.forceStart && prefs.autoOpen && isMobile() && isLoggedIn() && !SS.get('closed', 0) &&
-        (location.pathname === '/' || (/^\/list\/tracks/.test(location.pathname) && !sameAsStart()))) {
+    // «Cerrada» solo vale mientras se navega por la web normal desde dentro. Si se entra otra vez desde fuera
+    // (marcador, escribir la dirección, un enlace de otra app), la app vuelve a abrirse sola.
+    let ref = '';
+    try { ref = document.referrer || ''; } catch (e) {}
+    if (navType === 'navigate' && ref.indexOf(location.origin + '/') !== 0) SS.del('closed');
+    // Sin sesión iniciada la app no puede hacer nada útil: avisar en vez de quedarse callada, y abrirse al iniciarla.
+    const logged = isLoggedIn();
+    let justLogged = false;
+    if (logged) { justLogged = !!SS.get('loggedOut', 0); SS.del('loggedOut'); }
+    const loggedOut = !logged && looksLoggedOut();
+    if (loggedOut) SS.set('loggedOut', 1);
+    const tellLogin = () => { if (loggedOut && isMobile()) pageNotice('inicia sesión en Soundeo y la app se abrirá sola.', 7000); };
+    if ((fromOutside || (justLogged && !hs.view)) && prefs.forceStart && prefs.autoOpen && isMobile() && logged && !SS.get('closed', 0) &&
+        (location.pathname === '/' || (/^\/list\/tracks/.test(location.pathname) && !sameAsStart()) || (justLogged && !/^\/list\/tracks/.test(location.pathname)))) {
       location.replace(startUrl() + '#sx=' + prefs.startView);
       return;
     }
@@ -3443,7 +3777,7 @@
     const info = readDoc(document, location.href);
     if (!info.tracks.length) {
       // página sin tracks (portada, cuenta…): solo el botón para abrir la app
-      if (!isLoggedIn()) return;
+      if (!logged) { tellLogin(); return; }
       buildShell();
       root.classList.add('fabon');
       return;
@@ -3512,12 +3846,22 @@
         LS.set('hintSwipe', true);
         setTimeout(() => toast('Nuevo: ☰ secciones, 🔍 buscador, y toca el artista, el release o el sello para ver sus tracks', 'Vale', () => {}), 900);
       }
+      if (!LS.get('hint13', false)) {
+        LS.set('hint13', true);
+        if (!prefs.immersive && TOUCH) setTimeout(() => toast('Nuevo: esconder la barra de Safari para ganar pantalla', 'Activar', () => {
+          prefs.immersive = true;
+          savePrefs();
+          LS.set('immHint', 0);
+          immApply();
+        }), 2400);
+      }
       if (SS.get('autoplay', 0)) {
         SS.del('autoplay');
         // iOS solo permite sonar tras un toque; si no deja, se queda en pausa
         if (deck[activeIdx]) load(deck[activeIdx], true);
       }
-    }
+      if (loggedOut) setTimeout(() => toast('No has iniciado sesión en Soundeo: favoritos y descargas no funcionarán', 'Ir a la web', () => closeApp()), 1200);
+    } else tellLogin();
   }
 
   // Si algo falla al arrancar, que la web de Soundeo siga usable y se vea qué ha pasado.
@@ -3532,14 +3876,7 @@
         if (st) st.remove();
         vpMeta.restore();
       } catch (x) {}
-      try {
-        const d = document.createElement('div');
-        d.textContent = 'Soundeo Feed ' + VERSION + ' no ha podido arrancar: ' + (e && e.message);
-        d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:2147483647;background:#111;color:#fff;font:600 14px/1.35 -apple-system,sans-serif;padding:12px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.4)';
-        d.addEventListener('click', () => d.remove());
-        document.body.appendChild(d);
-        setTimeout(() => d.remove(), 15000);
-      } catch (x) {}
+      pageNotice(VERSION + ' no ha podido arrancar: ' + (e && e.message), 15000, true);
       try { console.error(e); } catch (x) {}
     }
   }
