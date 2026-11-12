@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -169,7 +169,7 @@
     { key: 'all', name: 'Todos los tracks', hint: 'Incluye los que aún hay que votar', icon: 'feed', path: '/list/tracks', available: '0', filters: true, hide: true },
     { key: 'upcoming', name: 'Próximos lanzamientos', hint: 'Upcoming tracks', icon: 'clock', path: '/upcoming', filters: true, loose: true, hide: true },
     { key: 'top100', name: 'Top 100 descargas', hint: 'Lo más descargado', icon: 'up', path: '/top100', filters: true, loose: true },
-    { key: 'followed', name: 'Seguidos', hint: 'Novedades de artistas y sellos que sigues', icon: 'user', path: '/account/followed' },
+    { key: 'followed', name: 'Seguidos', hint: 'Todo lo nuevo de los artistas y sellos que sigues, sin filtros', icon: 'user', path: '/account/followed', nofilter: true },
     { key: 'favs', name: 'Mis favoritos', hint: '', icon: 'star', path: '/account/favorites' },
     { key: 'downloads', name: 'Mis descargas', hint: '', icon: 'check', path: '/account/downloads' },
   ];
@@ -177,6 +177,9 @@
   function sectionUrl(sec, f) {
     f = f || {};
     if (sec.path === '/list/tracks') return buildListUrl(Object.assign({}, f, { available: sec.available, artist: '', label: '', search: f.search || '' }));
+    // Soundeo recuerda los últimos filtros usados y los aplica también aquí: se le piden vacíos a propósito
+    // (sin tocar artistFilter/labelFilter, que en esta página son los seguidos). Las demás listas mandan los suyos.
+    if (sec.nofilter) return location.origin + sec.path + '?availableFilter=0&genreFilter=&timeFilter=0&bpmFilter=&keyFilter=&modeFilter=1&trackTypeFilter=0&searchFilter=';
     if (!sec.filters) return location.origin + sec.path;
     const p = new URLSearchParams();
     if (f.genres && f.genres.length) p.set('genreFilter', f.genres.join(','));
@@ -444,7 +447,9 @@
   // Todo lo que interesa de una página: tracks, título, total, botón de seguir, siguiente página…
   function readDoc(doc, base, startDay) {
     const left = $('.content .left', doc) || $('.content', doc) || doc.body || doc;
-    const out = { tracks: parseTracks(doc, startDay, base), title: '', count: null, follow: null, msg: '', next: null, release: null };
+    const out = { tracks: parseTracks(doc, startDay, base), title: '', count: null, follow: null, msg: '', next: null, release: null, filtersOn: '' };
+    const fr = $('.filter-reset[data-filters]', doc);
+    if (fr) out.filtersOn = clean(fr.getAttribute('data-filters'));
     const h = $('h1.line', left);
     if (h) {
       const sup = $('sup', h);
@@ -1205,12 +1210,14 @@
     // de paso, volver al principio del recorrido si se está acabando (la barra está grande: no molesta)
     if (window.scrollY > 36000) window.scrollTo(0, 0);
     imm.y0 = window.scrollY;
+    imm.h = 0;
     if (imm.armed) return;
     imm.armed = true;
     root.classList.add('imm-armed');
     immLog('armar:' + why);
   }
   function immLock() {
+    imm.h = 0; // la medida anterior ya no vale hasta volver a medir
     imm.armed = false;
     root.classList.remove('imm-armed');
     immLog('bloquear');
@@ -1377,6 +1384,17 @@
       popTo(d);
       return;
     }
+    // o es de la lista que se dejó al cambiar de sección: volver a ella
+    if (queueOn()) {
+      const q = queue;
+      stash();
+      q.src.at = current.id;
+      q.src.forced.add(current.id);
+      stack = q.stack.slice();
+      switchView('feed');
+      adopt(q.src);
+      return;
+    }
     setView('feed');
   }
   let hashT = 0;
@@ -1466,12 +1484,39 @@
     }, { passive: false });
   }
 
+  /* ───────────── cola: lo que suena mientras se mira otra lista ───────────── */
+  // Al cambiar de lista la canción sigue sonando y su lista de origen queda como cola: al acabar (o con
+  // siguiente / anterior) se sigue por ella. La cola se suelta al elegir una canción de la lista que se mira.
+  // (En el feed no hay cola: ahí suena lo que se ve.)
+  let queue = null; // { src, stack, list, moved }
+  const queueOn = () => !!(queue && current && view === 'list' && cur !== queue.src && queue.list.some((t) => t.id === current.id));
+  // Antes de cambiar de fuente: si lo que suena es de la que se deja, su orden pasa a ser la cola.
+  function keepQueue() {
+    if (!current) { queue = null; return; }
+    if (queueOn()) return; // suena algo de otra lista: su cola sigue valiendo
+    if (!byId.has(current.id)) return;
+    const order = view === 'list' && listOrder.includes(current.id) ? listOrder.map((id) => byId.get(id)).filter(Boolean) : deck.slice();
+    queue = order.some((t) => t.id === current.id) ? { src: cur, stack: stack.slice(), list: order, moved: false } : null;
+  }
+  function stepQueue(d, play, quiet) {
+    const k = queue.list.findIndex((t) => t.id === current.id);
+    const t = queue.list[k + d];
+    if (!t) { if (!quiet) toast(d > 0 ? 'Fin de «' + queue.src.title + '»' : 'Es la primera de «' + queue.src.title + '»'); return false; }
+    // al volver a esa lista, que esté en la canción que suena
+    queue.src.at = t.id;
+    queue.src.forced.add(t.id);
+    queue.moved = true;
+    load(t, play);
+    return true;
+  }
+
   /* ───────────── fuentes: abrir, volver, cargar ───────────── */
   function mkSrc(d) {
     return Object.assign({
       kind: 'page', key: null, title: '', url: '', filters: null, canFilter: false, hide: false, loose: false, xhr: false, refId: '', query: '',
       tracks: [], hidden: new Set(), forced: new Set(), pages: newPages(), activeIdx: 0, listDay: 0, listScroll: 0, view: null, mode: 'all',
       loaded: false, loading: null, error: '', msg: '', count: null, follow: null, release: null, cut: 0, live: false, at: null, probe: null,
+      web: '', tries: null, filtersOn: '',
     }, d);
   }
   const setHidden = (set) => { hiddenAtLoad = set; if (cur) cur.hidden = set; };
@@ -1496,6 +1541,11 @@
     pages = s.pages;
     listDay = s.listDay || 0;
     indexTracks();
+    if (queue && s === queue.src) {
+      // de vuelta en la lista de lo que suena: si la cola ha avanzado, la lista se pone en el día de la canción
+      if (queue.moved && s.mode === 'day' && current && byId.has(current.id)) { const k = days.indexOf(byId.get(current.id).day); if (k >= 0) listDay = k; }
+      queue = null;
+    }
     buildDeck();
     const at = s.at != null ? deckPos.get(s.at) : null;
     activeIdx = at != null ? at : Math.max(0, Math.min(s.activeIdx || 0, deck.length));
@@ -1540,9 +1590,11 @@
       if (opts.view && opts.view !== view) setView(opts.view);
       return cur;
     }
+    keepQueue();
     stash();
-    // la lista con la que arrancó la página ya está cargada: no hace falta pedirla otra vez
-    let s = opts.root && liveSrc && liveSrc.loaded && sameUrl(liveSrc.url, d.url) ? liveSrc : mkSrc(d);
+    // la lista con la que arrancó la página (o la de lo que está sonando) ya está cargada: no hace falta pedirla otra vez
+    const known = opts.root ? [liveSrc, queue && queue.stack.length === 1 ? queue.src : null].find((x) => x && x.loaded && !x.error && x.kind === d.kind && sameUrl(x.url, d.url)) : null;
+    let s = known || mkSrc(d);
     if (opts.root) stack = [s];
     else if (opts.replace) stack[stack.length - 1] = s;
     else {
@@ -1565,6 +1617,8 @@
     if (depth < 0 || depth >= stack.length - 1) return;
     closeSheets();
     closeSearch();
+    keepQueue();
+    stash();
     stack.length = depth + 1;
     const s = stack[depth];
     if (s.view) switchView(s.view);
@@ -1595,13 +1649,25 @@
       return r.text().then((html) => ({ doc: docFromText(html), finalUrl: r.url || url }));
     });
   }
+  // Seguidos se pide sin filtros; si a Soundeo no le sirve esa petición (o no devuelve nada), se pide como siempre.
+  function fetchSource(s) {
+    const first = fetchDoc(s.url, s.xhr);
+    if (s.key !== 'followed' || s.url.indexOf('?') < 0) return first;
+    const plain = s.url.split('?')[0];
+    const again = (r) => fetchDoc(plain).then((r2) => { if (!r || parseTracks(r2.doc, '', plain).length) { s.url = plain; return r2; } return r; }, (e) => { if (r) return r; throw e; });
+    return first.then((r) => (parseTracks(r.doc, '', s.url).length ? r : again(r)), () => again(null));
+  }
   function ensureLoaded(s) {
     if (s.loaded) return Promise.resolve(s);
     if (s.loading) return s.loading;
     s.error = '';
-    s.loading = fetchDoc(s.url, s.xhr)
+    s.loading = (s.kind === 'similar' ? fetchSimilar(s) : fetchSource(s))
       .then(({ doc, finalUrl }) => { applyDoc(s, doc, finalUrl); s.loaded = true; })
-      .catch((e) => { s.error = short(e && e.message, 90) || 'error'; })
+      .catch((e) => {
+        // Soundeo no tiene ese bloque para esta canción: no es un fallo que se arregle reintentando
+        if (e && e.none) { s.tracks = []; s.loaded = true; s.msg = 'Soundeo no tiene «también descargan» para esta canción.'; return; }
+        s.error = short(e && e.message, 90) || 'error';
+      })
       .then(() => { s.loading = null; if (s === cur) adopt(s); return s; });
     return s.loading;
   }
@@ -1630,6 +1696,7 @@
     s.follow = info.follow;
     s.release = info.release;
     s.msg = info.msg;
+    s.filtersOn = info.filtersOn;
     if (info.title && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
     s.mode = listModeFor(s.tracks);
     s.hidden = s.hide ? hiddenFor(s.tracks) : new Set();
@@ -1655,16 +1722,17 @@
     else d = sectionDesc(String(f.available) === '0' ? 'all' : 'avail', f);
     openSource(d, stack.length > 1 ? { replace: true } : { root: true });
   }
+  // Cambiar de sección se abre en lista: se mira lo que hay sin cortar lo que suena.
   function openSection(key) {
     if (stack.length === 1 && cur && cur.key === key && cur.kind === 'section' && !cur.error) { toast('Ya estás en ' + sectionByKey(key).name); return; }
-    openSource(sectionDesc(key), { root: true });
+    openSource(sectionDesc(key), { root: true, view: 'list' });
   }
   function saveNav() {
     try {
       if (!cur) return;
       SS.set('nav', stack.map((s) => ({
         kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr,
-        refId: s.refId, query: s.query, live: s.live, view: s === cur ? view : s.view, at: s === cur ? (deck[activeIdx] ? deck[activeIdx].id : null) : s.at,
+        refId: s.refId, query: s.query, web: s.web, live: s.live, view: s === cur ? view : s.view, at: s === cur ? (deck[activeIdx] ? deck[activeIdx].id : null) : s.at,
       })));
     } catch (e) {}
   }
@@ -1740,7 +1808,33 @@
   const openRelease = (t) => { if (t.releaseUrl) openSource(releaseDesc(t.releaseUrl, t.release), { view: 'list' }); };
   const openGenre = (t) => { if (t.genreId) openSource(genreDesc(t.genreId, t.genre), { view: 'list' }); };
   // "Show what members also download" de la página del track
-  const openSimilar = (t) => openSource({ kind: 'similar', title: t.name, xhr: true, url: location.origin + '/tracks/recommend/' + encodeURIComponent(t.id) }, { view: 'list' });
+  const openSimilar = (t) => openSource({ kind: 'similar', title: t.name, xhr: true, web: t.trackUrl || '', url: location.origin + '/tracks/recommend/' + encodeURIComponent(t.id) }, { view: 'list' });
+  // El bloque «members also download» es perezoso: la página del track trae <div id="relatedTracksContainer" data-url="/tracks/recommend/ID">
+  // y la web lo pide al pulsar. No se sabe con qué tipo de petición: se prueba GET; si falla, se mira la página del track
+  // (¿existe el bloque?, ¿con qué dirección?) y se prueba POST. Lo que pasa en cada intento queda para el diagnóstico.
+  function fetchSimilar(s) {
+    const tries = [];
+    s.tries = tries;
+    const has = (r) => parseTracks(r.doc, '', s.url).length > 0;
+    const post = (url) => fetch(url, { method: 'POST', credentials: 'include', body: '', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/javascript, */*; q=0.01', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text().then((html) => ({ doc: docFromText(html), finalUrl: r.url || url })); });
+    const attempt = (label, fn) => fn().then((r) => { tries.push(label + ': ' + (has(r) ? 'ok' : 'sin tracks')); return has(r) ? r : null; }, (e) => { tries.push(label + ': ' + short(e && e.message, 40)); return null; });
+    const none = () => { const e = new Error('none'); e.none = true; throw e; };
+    return attempt('GET', () => fetchDoc(s.url, true)).then((r) => {
+      if (r) return r;
+      if (!s.web) return attempt('POST', () => post(s.url)).then((r2) => r2 || none());
+      return fetch(s.web, { credentials: 'include' }).then((x) => x.text()).then((html) => {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const box = $('#relatedTracksContainer[data-url], [data-url*="/tracks/recommend"]', doc);
+        const inPage = box ? parseTracks(box, '', s.web) : [];
+        tries.push('página: ' + (box ? 'bloque ' + short(box.getAttribute('data-url'), 60) : 'sin bloque'));
+        if (inPage.length) return { doc: new DOMParser().parseFromString('<section class="content"><div class="left">' + box.innerHTML + '</div></section>', 'text/html'), finalUrl: s.web };
+        if (!box) return none();
+        const u = absUrl(box.getAttribute('data-url'), s.web);
+        return attempt('POST', () => post(u)).then((r2) => r2 || (u !== s.url ? attempt('GET bloque', () => fetchDoc(u, true)) : null)).then((r3) => r3 || none());
+      }, (e) => { tries.push('página: ' + short(e && e.message, 40)); return attempt('POST', () => post(s.url)).then((r2) => r2 || none()); });
+    });
+  }
 
   /* ───────────── seguir a un artista o sello ───────────── */
   function toggleFollow(s) {
@@ -2241,6 +2335,7 @@
     return true;
   }
   function step(d, userGesture) {
+    if (queueOn()) { stepQueue(d, userGesture ? true : wantPlay); return; }
     if (view === 'list' && current && listOrder.includes(current.id)) {
       const k = listOrder.indexOf(current.id) + d;
       if (k >= 0 && k < listOrder.length) { playListTrack(listOrder[k], userGesture ? true : wantPlay); return; }
@@ -2339,7 +2434,9 @@
       const pick = (re) => { const r = rows.find((x) => re.test(x[0])); return r ? r[1] : ''; };
       return [pick(/^label/i), pick(/date|released/i), tracks.length + (tracks.length === 1 ? ' track' : ' tracks')].filter(Boolean).join(' · ');
     }
-    return tracks.length ? (pages.hasMore ? 'Más de ' : '') + tracks.length + ' tracks' : '';
+    const base = tracks.length ? (pages.hasMore ? 'Más de ' : '') + tracks.length + ' tracks' : '';
+    if (s.key === 'followed' && base) return base + (s.filtersOn ? ' · Soundeo sigue filtrando aquí' : ' · sin filtros');
+    return base;
   };
   // "98 tracks · 40 sin escuchar" (en artista, sello… el total ya está en la cabecera)
   const allCountText = () => {
@@ -2389,7 +2486,7 @@
       <div class="stack" style="align-items:center">${s.error ? '<button class="btn pri bretry">Reintentar</button>' : ''}${!s.loading && s.url ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
     const on = (sel, fn) => { const b = $(sel, e); if (b) b.addEventListener('click', fn); };
     on('.bretry', () => { ensureLoaded(s); adopt(s); });
-    on('.bweb', () => { closeApp(true); location.href = s.url; });
+    on('.bweb', () => { closeApp(true); location.href = s.web || s.url; });
     on('.bfed', () => { closeApp(true); location.href = location.origin + '/account/followed/edit'; });
     return e;
   }
@@ -2627,6 +2724,7 @@
   // Las n canciones que vienen después de la que suena, según dónde estés (lista o feed).
   function upcoming(n) {
     if (!current) return [];
+    if (queueOn()) { const q = queue.list.findIndex((t) => t.id === current.id); return queue.list.slice(q + 1, q + 1 + n); }
     if (view === 'list') {
       const k = listOrder.indexOf(current.id);
       if (k >= 0) return listOrder.slice(k + 1, k + 1 + n).map((id) => byId.get(id)).filter(Boolean);
@@ -2673,6 +2771,7 @@
     let changed = false;
     if (!current || current.id !== t.id) {
       changed = true;
+      if (queue && !queue.list.includes(t)) queue = null; // se ha elegido una canción de la lista que se mira
       pl.prevId = current ? current.id : null;
       current = t;
       seekTarget = null;
@@ -2865,6 +2964,7 @@
   onAudio('ended', () => {
     paintPlayer();
     if (!prefs.autoNext) { wantPlay = false; return; }
+    if (queueOn()) { if (!stepQueue(1, true, true)) wantPlay = false; return; }
     if (view === 'list' && current && listOrder.includes(current.id)) {
       const k = listOrder.indexOf(current.id) + 1;
       if (k < listOrder.length) playListTrack(listOrder[k], true);
@@ -3413,7 +3513,7 @@
   /* ───────────── ajustes ───────────── */
   function goStart() {
     closeSheets();
-    openSource(sectionDesc(prefs.startSection || 'avail'), { root: true });
+    openSource(sectionDesc(prefs.startSection || 'avail'), { root: true, view: 'list' });
   }
   function openSettings(mode) {
     const isStart = mode === 'start';
@@ -3631,6 +3731,7 @@
         kind: s.kind, key: s.key, title: s.title, url: short(String(s.url).replace(location.origin, ''), 200), tracks: (s === cur ? tracks : s.tracks).length,
         mode: s.mode, pages: s.pages.first + '-' + s.pages.last + (s.pages.hasMore ? '+' : ''), count: s.count, cut: s.cut || undefined,
         follow: s.follow || undefined, error: s.error || undefined, msg: s.msg || undefined, probe: s.probe || undefined,
+        tries: s.tries || undefined, filtersOn: s.filtersOn || undefined,
       })),
       player: {
         preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
