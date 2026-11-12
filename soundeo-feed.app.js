@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -707,6 +707,15 @@
   .rel .lbl,.rel .relb{color:var(--fg);text-decoration:underline;text-decoration-color:rgba(255,255,255,.3);text-underline-offset:3px;}
   .rel .relb{color:var(--mut);}
   .chips{display:flex;gap:6px;flex-wrap:wrap;overflow:hidden;margin-top:11px;height:26px;}
+  /* móvil en horizontal: no cabe la portada; se queda el texto con los botones al lado */
+  @media (orientation:landscape) and (max-height:500px){
+    .cvw{display:none;}
+    .mid{justify-content:flex-end;}
+    .info{height:auto;margin-top:0;}
+    .ttl{-webkit-line-clamp:1;}
+    .rel,.chips{display:none;}
+    .rail{flex-direction:row;}
+  }
   .chips .chip:empty{display:none;}
   .end .cin{justify-content:center;align-items:center;text-align:center;gap:14px;}
   .end h3{margin:0;font-size:22px;font-weight:800;}
@@ -1029,17 +1038,24 @@
     feedEl.addEventListener('scroll', onFeedScroll, { passive: true });
     setupGestures();
     app.addEventListener('click', unlockPlayers, true);
+    // Girar la pantalla (o cualquier cambio de ancho) mueve el scroll del feed sin que nadie haya deslizado:
+    // se sujeta el feed en la canción activa hasta que todo se asiente.
     let rzT = 0;
-    const onResize = () => {
+    const widthChanged = () => !!feedEl.clientWidth && feedEl.clientWidth !== feedW;
+    window.addEventListener('orientationchange', () => { if (isOpen && view === 'feed') holdFeed(900); });
+    window.addEventListener('resize', () => {
+      if (!isOpen || view !== 'feed') return;
+      if (widthChanged()) { holdFeed(700); return; }
       clearTimeout(rzT);
-      rzT = setTimeout(() => {
-        if (!isOpen || view !== 'feed') return;
-        layoutCards();
-        feedJump(activeIdx);
-      }, 120);
-    };
-    window.addEventListener('resize', onResize);
-    window.addEventListener('orientationchange', onResize);
+      rzT = setTimeout(() => { if (isOpen && view === 'feed' && performance.now() > holdUntil) layoutCards(); }, 150);
+    });
+    try {
+      new ResizeObserver(() => { if (isOpen && view === 'feed' && widthChanged()) holdFeed(700); }).observe(feedEl);
+    } catch (e) {}
+    // al volver a Safari (o desbloquear), el feed se recoloca en la que está sonando
+    const resync = () => { if (!document.hidden && isOpen && view === 'feed') holdFeed(350); };
+    document.addEventListener('visibilitychange', resync);
+    window.addEventListener('pageshow', resync);
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
       const d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
@@ -1155,6 +1171,7 @@
     const start = (e) => {
       g = null;
       scrollLock = null; // el dedo manda sobre cualquier desplazamiento en curso
+      if (view === 'feed' && e.currentTarget === feedEl) touchFeed();
       if (e.touches.length !== 1 || view !== 'feed' || (e.target.closest && e.target.closest('.bar'))) return;
       const t = e.touches[0];
       const inFeed = e.currentTarget === feedEl;
@@ -1868,7 +1885,9 @@
   }
   // el feed es una fila de tarjetas a pantalla completa: la posición es scrollLeft / ancho
   function feedJump(idx, smooth) {
-    const x = idx * feedEl.clientWidth;
+    const w = feedEl.clientWidth;
+    if (w) feedW = w;
+    const x = idx * w;
     if (smooth && feedEl.scrollTo) feedEl.scrollTo({ left: x, behavior: 'smooth' });
     else feedEl.scrollLeft = x;
   }
@@ -1876,20 +1895,52 @@
   let scrollRaf = 0;
   let settleT = 0;
   let scrollLock = null; // destino de un desplazamiento que ha lanzado la app (botones): hasta llegar, manda él
+  // El scroll del feed solo cuenta como "el usuario ha cambiado de canción" si es un deslizamiento normal.
+  // Girar la pantalla, volver de segundo plano o un recolocado de Safari también mueven el scroll: eso se deshace.
+  const TOUCH = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
+  let feedW = 0; // ancho del feed la última vez que se colocó
+  let holdUntil = 0; // hasta entonces el scroll no cuenta (se está asentando un cambio de tamaño)
+  let holdT = 0;
+  function holdFeed(ms) {
+    if (!feedEl) return;
+    holdUntil = performance.now() + ms;
+    scrollLock = null;
+    clearTimeout(settleT);
+    if (view === 'feed' && feedEl.clientWidth) feedJump(activeIdx);
+    clearTimeout(holdT);
+    // recolocar otra vez justo antes de soltar, por si Safari ha seguido moviendo cosas
+    holdT = setTimeout(() => {
+      if (view !== 'feed' || !feedEl.clientWidth) return;
+      layoutCards();
+      feedJump(activeIdx);
+    }, Math.max(0, ms - 80));
+  }
+  // Un dedo toca el feed mientras se asentaba un giro: dejarlo ya colocado y que mande el dedo.
+  function touchFeed() {
+    if (performance.now() >= holdUntil && feedEl.clientWidth === feedW) return;
+    clearTimeout(holdT);
+    holdUntil = 0;
+    if (feedEl.clientWidth) feedJump(activeIdx);
+  }
   function onFeedScroll() {
     // con el feed oculto (lista) su scroll vuelve a 0 y avisa: eso no es el usuario cambiando de canción
-    if (view !== 'feed') return;
+    if (view !== 'feed' || performance.now() < holdUntil) return;
     if (!scrollRaf) {
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = 0;
         const w = feedEl.clientWidth;
-        if (view !== 'feed' || !w) return;
+        const now = performance.now();
+        if (view !== 'feed' || !w || now < holdUntil) return;
+        if (feedW && w !== feedW) { holdFeed(600); return; } // ha cambiado el ancho: no es un deslizamiento
         const idx = Math.max(0, Math.min(deck.length, Math.round(feedEl.scrollLeft / w)));
         if (scrollLock) {
-          if (idx === scrollLock.idx || performance.now() > scrollLock.until) scrollLock = null;
+          if (idx === scrollLock.idx || now > scrollLock.until) scrollLock = null;
           else return;
         }
-        if (idx !== activeIdx) onActive(idx, false);
+        if (idx === activeIdx) return;
+        // un dedo pasa las tarjetas de una en una; un salto de varias de golpe no es un deslizamiento
+        if (TOUCH && Math.abs(idx - activeIdx) >= 3) { feedJump(activeIdx); return; }
+        onActive(idx, false);
       });
     }
     clearTimeout(settleT);
