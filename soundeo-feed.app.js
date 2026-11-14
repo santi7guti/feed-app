@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.4.1';
+  const VERSION = '1.4.2';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -264,7 +264,10 @@
   };
   const isLoggedIn = () => !!$('#top-menu-logout, a[href*="/account/logout"]');
   // Solo se da por «sin sesión» si además se ve por dónde entrar (para no avisar en falso si Soundeo cambia su cabecera).
-  const looksLoggedOut = () => !isLoggedIn() && !!$('#top-menu-login, a[href*="/account/logon"], a[href*="/account/login"], a[href*="/login"], a[href*="/account/register"], form[action*="logon"], form[action*="login"], input[type="password"]');
+  // (En el Soundeo real la cabecera sin sesión no trae ningún enlace de «login» reconocible: se da por «sin sesión»
+  // cuando es una página de Soundeo —tiene su logo— y faltan a la vez el botón de salir, la cuenta y los contadores.)
+  const looksLoggedOut = () => !isLoggedIn() && (!!$('#top-menu-login, a[href*="/account/logon"], a[href*="/account/login"], a[href*="/login"], a[href*="/account/register"], form[action*="logon"], form[action*="login"], input[type="password"]') ||
+    (!!$('header a.logo, a.logo') && !$('#top-menu-account, #span-downloads, #span-favorites')));
   // Aviso sobre la web normal (cuando la app no está abierta).
   function pageNotice(msg, ms, top) {
     try {
@@ -1724,7 +1727,7 @@
     if (!info.tracks.length) {
       // sin tracks: guardar cómo es la página (para el diagnóstico) y avisar si Soundeo ha mandado a otro sitio
       s.probe = pageShape(doc);
-      if (s.needLogin) s.msg = 'Soundeo pide iniciar sesión para ver esto.';
+      if (s.needLogin) s.msg = 'En esta pestaña no hay sesión de Soundeo iniciada.';
       else if (s.bounced) s.msg = s.msg || 'Soundeo ha redirigido a ' + fp;
     }
   }
@@ -2537,7 +2540,7 @@
     const s = cur;
     const login = !s.loading && s.needLogin;
     const e = el(`<div class="lempty">${s.loading ? 'Cargando…' : s.error ? 'No se ha podido cargar: ' + esc(s.error) : esc(siteMsg(s))}
-      <div class="stack" style="align-items:center">${login ? '<button class="btn pri blogin">Iniciar sesión</button>' : ''}${s.error || (!s.loading && s.bounced) ? '<button class="btn' + (login ? '' : ' pri') + ' bretry">Reintentar</button>' : ''}${!s.loading && s.url && !login ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading && !login ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
+      <div class="stack" style="align-items:center">${login ? '<button class="btn pri blogin">Iniciar sesión</button>' : ''}${s.error || (!s.loading && s.bounced) ? '<button class="btn' + (login ? '' : ' pri') + ' bretry">Reintentar</button>' : ''}${!s.loading && s.url && !login ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading && !login ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div>${login ? '<div class="note" style="margin-top:16px">¿Es una pestaña privada (incógnito)? Ahí Safari no guarda tu sesión: abre Soundeo en una pestaña normal y no tendrás que iniciarla.</div>' : ''}</div>`);
     const on = (sel, fn) => { const b = $(sel, e); if (b) b.addEventListener('click', fn); };
     on('.blogin', goLogin);
     on('.bretry', () => reloadSource(s));
@@ -4039,7 +4042,7 @@
         // iOS solo permite sonar tras un toque; si no deja, se queda en pausa
         if (deck[activeIdx]) load(deck[activeIdx], true);
       }
-      if (loggedOut) setTimeout(() => toast('No has iniciado sesión en Soundeo: favoritos, seguidos y descargas no funcionarán', 'Iniciar sesión', goLogin), 1200);
+      if (loggedOut) setTimeout(() => toast('Sin sesión de Soundeo en esta pestaña. ¿Es una pestaña privada?', 'Iniciar sesión', goLogin), 1200);
     } else tellLogin();
   }
 
