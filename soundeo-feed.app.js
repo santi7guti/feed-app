@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.4.1';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -1150,12 +1150,22 @@
     document.addEventListener('visibilitychange', resync);
     window.addEventListener('pageshow', resync);
     setupImmersive();
+    let retryAt = 0;
+    const retryStale = () => {
+      if (document.hidden || !isOpen || !cur || !(cur.needLogin || cur.bounced) || performance.now() - retryAt < 4000) return;
+      retryAt = performance.now();
+      reloadSource(cur);
+    };
     window.addEventListener('pageshow', (e) => {
-      if (!e.persisted || isOpen || !reopenOnReturn || !cur) return;
-      reopenOnReturn = false;
-      SS.del('closed');
-      openApp(view);
+      if (e.persisted && !isOpen && reopenOnReturn && cur) {
+        reopenOnReturn = false;
+        SS.del('closed');
+        openApp(view);
+      }
+      // la página vuelve tal como se dejó: lo que pedía sesión se pide otra vez (puede que ya la haya)
+      retryStale();
     });
+    document.addEventListener('visibilitychange', retryStale);
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
       const d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
@@ -1516,7 +1526,7 @@
       kind: 'page', key: null, title: '', url: '', filters: null, canFilter: false, hide: false, loose: false, xhr: false, refId: '', query: '',
       tracks: [], hidden: new Set(), forced: new Set(), pages: newPages(), activeIdx: 0, listDay: 0, listScroll: 0, view: null, mode: 'all',
       loaded: false, loading: null, error: '', msg: '', count: null, follow: null, release: null, cut: 0, live: false, at: null, probe: null,
-      web: '', tries: null, filtersOn: '',
+      web: '', tries: null, filtersOn: '', bounced: false, needLogin: false,
     }, d);
   }
   const setHidden = (set) => { hiddenAtLoad = set; if (cur) cur.hidden = set; };
@@ -1654,7 +1664,7 @@
     const first = fetchDoc(s.url, s.xhr);
     if (s.key !== 'followed' || s.url.indexOf('?') < 0) return first;
     const plain = s.url.split('?')[0];
-    const again = (r) => fetchDoc(plain).then((r2) => { if (!r || parseTracks(r2.doc, '', plain).length) { s.url = plain; return r2; } return r; }, (e) => { if (r) return r; throw e; });
+    const again = (r) => fetchDoc(plain).then((r2) => { s.url = plain; return r2; }, (e) => { if (r) return r; throw e; });
     return first.then((r) => (parseTracks(r.doc, '', s.url).length ? r : again(r)), () => again(null));
   }
   function ensureLoaded(s) {
@@ -1662,7 +1672,7 @@
     if (s.loading) return s.loading;
     s.error = '';
     s.loading = (s.kind === 'similar' ? fetchSimilar(s) : fetchSource(s))
-      .then(({ doc, finalUrl }) => { applyDoc(s, doc, finalUrl); s.loaded = true; })
+      .then(({ doc, finalUrl }) => { applyDoc(s, doc, finalUrl); s.loaded = true; sessionCheck(doc); })
       .catch((e) => {
         // Soundeo no tiene ese bloque para esta canción: no es un fallo que se arregle reintentando
         if (e && e.none) { s.tracks = []; s.loaded = true; s.msg = 'Soundeo no tiene «también descargan» para esta canción.'; return; }
@@ -1685,6 +1695,14 @@
   }
   function applyDoc(s, doc, finalUrl) {
     const info = readDoc(doc, s.url);
+    // ¿Soundeo ha contestado con otra página? En las de la cuenta (seguidos, favoritos, descargas) eso es que no hay sesión.
+    let rp = '';
+    let fp = '';
+    try { rp = new URL(s.url, location.href).pathname; fp = new URL(finalUrl, location.href).pathname; } catch (e) {}
+    const account = /^\/account\//.test(rp);
+    s.bounced = !!(rp && fp && fp !== rp && (account || !info.tracks.length));
+    s.needLogin = s.bounced && (account || /log(on|in)|sign/i.test(fp) || !$('#top-menu-logout, a[href*="/account/logout"]', doc));
+    if (s.bounced && account) info.tracks = [];
     if (s.key === 'top100') info.tracks.forEach((t, k) => { t.rank = k + 1; });
     s.cut = 0;
     s.tracks = localFilter(s, info.tracks);
@@ -1706,11 +1724,42 @@
     if (!info.tracks.length) {
       // sin tracks: guardar cómo es la página (para el diagnóstico) y avisar si Soundeo ha mandado a otro sitio
       s.probe = pageShape(doc);
-      try {
-        const fp = new URL(finalUrl).pathname;
-        if (fp !== new URL(s.url).pathname) s.msg = s.msg || 'Soundeo ha redirigido a ' + fp;
-      } catch (e) {}
+      if (s.needLogin) s.msg = 'Soundeo pide iniciar sesión para ver esto.';
+      else if (s.bounced) s.msg = s.msg || 'Soundeo ha redirigido a ' + fp;
     }
+  }
+  // Volver a pedir una fuente (tras iniciar sesión, al reintentar…).
+  function reloadSource(s) {
+    if (!s || s.loading || s.live) return;
+    s.loaded = false;
+    s.error = '';
+    s.msg = '';
+    s.bounced = false;
+    s.needLogin = false;
+    ensureLoaded(s);
+    if (s === cur) adopt(s);
+  }
+  // La página que cargó Safari no tenía sesión, pero Soundeo ya contesta con ella (se ha iniciado después: en otra
+  // pestaña, o se ha vuelto atrás a esta página). Se recarga una vez para que todo salga con la sesión: cabecera,
+  // favoritos, escuchadas. Al recargar se vuelve a la misma lista.
+  function sessionCheck(doc) {
+    try {
+      if (!doc || isLoggedIn() || !$('#top-menu-logout, a[href*="/account/logout"]', doc)) return;
+      if (Date.now() - SS.get('relog', 0) < 60000) return;
+      SS.set('relog', Date.now());
+      saveNav();
+      location.reload();
+    } catch (e) {}
+  }
+  // Ir a iniciar sesión en la web. Al terminar, la app vuelve sola a donde se estaba.
+  function goLogin() {
+    SS.set('wantLogin', Date.now());
+    SS.set('navOnce', Date.now());
+    saveNav();
+    const a = $('#top-menu-login a, a[href*="/account/logon"], a[href*="/account/login"], a[href*="/login"]');
+    let to = location.origin + '/';
+    try { if (a && a.getAttribute('href') && new URL(a.href).origin === location.origin) to = a.href; } catch (e) {}
+    location.href = to;
   }
   // Cambiar los filtros de la fuente actual (desde Ajustes).
   function refilter(f) {
@@ -1724,7 +1773,11 @@
   }
   // Cambiar de sección se abre en lista: se mira lo que hay sin cortar lo que suena.
   function openSection(key) {
-    if (stack.length === 1 && cur && cur.key === key && cur.kind === 'section' && !cur.error) { toast('Ya estás en ' + sectionByKey(key).name); return; }
+    if (stack.length === 1 && cur && cur.key === key && cur.kind === 'section' && !cur.error) {
+      if (cur.bounced || cur.needLogin) { closeSheets(); reloadSource(cur); return; }
+      toast('Ya estás en ' + sectionByKey(key).name);
+      return;
+    }
     openSource(sectionDesc(key), { root: true, view: 'list' });
   }
   function saveNav() {
@@ -2482,10 +2535,12 @@
   }
   function emptyBlock() {
     const s = cur;
+    const login = !s.loading && s.needLogin;
     const e = el(`<div class="lempty">${s.loading ? 'Cargando…' : s.error ? 'No se ha podido cargar: ' + esc(s.error) : esc(siteMsg(s))}
-      <div class="stack" style="align-items:center">${s.error ? '<button class="btn pri bretry">Reintentar</button>' : ''}${!s.loading && s.url ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
+      <div class="stack" style="align-items:center">${login ? '<button class="btn pri blogin">Iniciar sesión</button>' : ''}${s.error || (!s.loading && s.bounced) ? '<button class="btn' + (login ? '' : ' pri') + ' bretry">Reintentar</button>' : ''}${!s.loading && s.url && !login ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading && !login ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div></div>`);
     const on = (sel, fn) => { const b = $(sel, e); if (b) b.addEventListener('click', fn); };
-    on('.bretry', () => { ensureLoaded(s); adopt(s); });
+    on('.blogin', goLogin);
+    on('.bretry', () => reloadSource(s));
     on('.bweb', () => { closeApp(true); location.href = s.web || s.url; });
     on('.bfed', () => { closeApp(true); location.href = location.origin + '/account/followed/edit'; });
     return e;
@@ -3731,7 +3786,7 @@
         kind: s.kind, key: s.key, title: s.title, url: short(String(s.url).replace(location.origin, ''), 200), tracks: (s === cur ? tracks : s.tracks).length,
         mode: s.mode, pages: s.pages.first + '-' + s.pages.last + (s.pages.hasMore ? '+' : ''), count: s.count, cut: s.cut || undefined,
         follow: s.follow || undefined, error: s.error || undefined, msg: s.msg || undefined, probe: s.probe || undefined,
-        tries: s.tries || undefined, filtersOn: s.filtersOn || undefined,
+        tries: s.tries || undefined, filtersOn: s.filtersOn || undefined, bounced: s.bounced || undefined, needLogin: s.needLogin || undefined,
       })),
       player: {
         preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
@@ -3742,6 +3797,14 @@
       lastAction,
       capture: cap.items,
       counters: { downloads: dlLeft(), favorites: favCount(), votes: voteLeft() },
+      session: (() => {
+        // sin datos de la cuenta ni cookies: solo si la página trae sesión y si lo guardado en el móvil dura
+        let keys = 0;
+        try { for (let k = 0; k < localStorage.length; k++) if (/^sxfeed:/.test(localStorage.key(k))) keys++; } catch (e) { keys = -1; }
+        const born = LS.get('born', 0);
+        const age = (t) => (t ? Math.round((Date.now() - t) / 60000) : null);
+        return { logged: isLoggedIn(), looksOut: looksLoggedOut(), host: location.hostname, cookiesOn: navigator.cookieEnabled, storedKeys: keys, storedMin: age(born), reloadedMin: age(SS.get('relog', 0)), wantLogin: !!SS.get('wantLogin', 0) };
+      })(),
       screen: {
         imm: !!prefs.immersive, on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
         vv: window.visualViewport ? Math.round(window.visualViewport.height) : null, sh: screen.height, sw: screen.width, sab: immSab(),
@@ -3864,15 +3927,28 @@
     // Sin sesión iniciada la app no puede hacer nada útil: avisar en vez de quedarse callada, y abrirse al iniciarla.
     const logged = isLoggedIn();
     let justLogged = false;
-    if (logged) { justLogged = !!SS.get('loggedOut', 0); SS.del('loggedOut'); }
+    // «Iniciar sesión» pulsado desde la app hace menos de 20 min: al terminar, volver a donde se estaba
+    const recent = (k) => { const t = SS.get(k, 0); return !!t && Date.now() - t < 20 * 60000; };
+    const wantLogin = recent('wantLogin');
+    if (logged) {
+      justLogged = !!SS.get('loggedOut', 0) || wantLogin;
+      SS.del('loggedOut');
+      SS.del('wantLogin');
+      if (wantLogin) SS.del('closed');
+    }
     const loggedOut = !logged && looksLoggedOut();
     if (loggedOut) SS.set('loggedOut', 1);
-    const tellLogin = () => { if (loggedOut && isMobile()) pageNotice('inicia sesión en Soundeo y la app se abrirá sola.', 7000); };
+    const tellLogin = () => { if ((loggedOut || (wantLogin && !logged)) && isMobile()) pageNotice('inicia sesión en Soundeo y la app se abrirá sola.', 7000); };
+    if (wantLogin && logged && !hs.view && !/^\/list\/tracks/.test(location.pathname)) {
+      location.replace(startUrl() + '#sx=list');
+      return;
+    }
     if ((fromOutside || (justLogged && !hs.view)) && prefs.forceStart && prefs.autoOpen && isMobile() && logged && !SS.get('closed', 0) &&
         (location.pathname === '/' || (/^\/list\/tracks/.test(location.pathname) && !sameAsStart()) || (justLogged && !/^\/list\/tracks/.test(location.pathname)))) {
       location.replace(startUrl() + '#sx=' + prefs.startView);
       return;
     }
+    if (!LS.get('born', 0)) LS.set('born', Date.now());
     const firstBoot = !SS.get('booted', 0);
     // la página con la que arranca Safari es la primera fuente (no hay que pedir nada)
     const info = readDoc(document, location.href);
@@ -3905,7 +3981,9 @@
     if (resumeId) { live.forced.add(resumeId); live.at = resumeId; }
     stack = [live];
     // al recargar, volver a donde estabas (sección, artista, búsqueda…)
-    const nav = resume ? SS.get('nav', null) : null;
+    const navOnce = recent('navOnce') && logged;
+    if (logged) SS.del('navOnce');
+    const nav = resume || navOnce ? SS.get('nav', null) : null;
     if (Array.isArray(nav) && nav.length && (nav.length > 1 || !nav[0].live) && (!nav[0].live || sameUrl(nav[0].url, live.url))) {
       stack = nav.map((x, k) => {
         if (k === 0 && x.live) { live.view = x.view; if (x.at && nav.length > 1) { live.at = x.at; live.forced.add(x.at); } return live; }
@@ -3913,7 +3991,7 @@
       });
     }
     const top = stack[stack.length - 1];
-    view = (hs.view || (resume && top.view) || SS.get('view', null) || prefs.startView) === 'list' ? 'list' : 'feed';
+    view = (hs.view || ((resume || navOnce) && top.view) || SS.get('view', null) || prefs.startView) === 'list' ? 'list' : 'feed';
     if (!top.loaded) ensureLoaded(top);
     adopt(top);
     watchSite();
@@ -3923,7 +4001,7 @@
     probeCoverSize(live.tracks[0] && live.tracks[0].cover);
 
     const isListPage = /^\/list\/tracks/.test(location.pathname);
-    const shouldOpen = hs.view || (isListPage && prefs.autoOpen && isMobile() && !SS.get('closed', 0));
+    const shouldOpen = hs.view || navOnce || (isListPage && prefs.autoOpen && isMobile() && !SS.get('closed', 0));
     if (shouldOpen) {
       if (deck[activeIdx]) load(deck[activeIdx], false);
       openApp(view);
@@ -3961,7 +4039,7 @@
         // iOS solo permite sonar tras un toque; si no deja, se queda en pausa
         if (deck[activeIdx]) load(deck[activeIdx], true);
       }
-      if (loggedOut) setTimeout(() => toast('No has iniciado sesión en Soundeo: favoritos y descargas no funcionarán', 'Ir a la web', () => closeApp()), 1200);
+      if (loggedOut) setTimeout(() => toast('No has iniciado sesión en Soundeo: favoritos, seguidos y descargas no funcionarán', 'Iniciar sesión', goLogin), 1200);
     } else tellLogin();
   }
 
