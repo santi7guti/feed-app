@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.5.1';
+  const VERSION = '1.6.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -514,6 +514,7 @@
         if (t) t.siteHeard = true;
         const tr = r && r.track;
         if (!tr) return;
+        lastStatus = { id, bpm: short(tr.bpm, 20), key: short(tr.key, 30) };
         // BPM y tono vienen aquí como datos sueltos (no hay que buscarlos en una página): si llegan, mandan
         const old = metaCache[id] || {};
         const nb = bpmOf(tr.bpm == null ? '' : String(tr.bpm)) || old.b || null;
@@ -583,6 +584,7 @@
     const areas = own ? [own, scope] : [scope];
     let bpm = null;
     let key = null;
+    let via = '';
     // La ficha del track es una tabla: «BPM | 128», «Key | Amin». Los enlaces de artista, sello y género llevan
     // también «bpmFilter=» y «keyFilter=» en su dirección (vacíos), así que no vale cualquier enlace: con el sello
     // «Room 104» salían 104 BPM. Solo cuentan la fila con ese nombre o un enlace que filtre de verdad por BPM / tono.
@@ -595,15 +597,15 @@
     };
     const filterLinks = (a, name) => $$('a[href*="' + name + '="]', a).filter((x) => !!paramOf(x.getAttribute('href'), name));
     for (const a of areas) {
-      if (!bpm) bpm = bpmOf(cell(a, /^bpm:?$/i));
-      if (!bpm) { const e = $('a.bpm, .bpm, [title="BPM"]', a); if (e) bpm = bpmOf(e.textContent); }
-      if (!bpm) for (const x of filterLinks(a, 'bpmFilter')) { const n = bpmOf(x.textContent); if (n) { bpm = n; break; } }
+      if (!bpm) { bpm = bpmOf(cell(a, /^bpm:?$/i)); if (bpm) via = 'fila'; }
+      if (!bpm) { const e = $('a.bpm, .bpm, [title="BPM"]', a); if (e) bpm = bpmOf(e.textContent); if (bpm) via = 'clase'; }
+      if (!bpm) for (const x of filterLinks(a, 'bpmFilter')) { const n = bpmOf(x.textContent); if (n) { bpm = n; via = 'enlace'; break; } }
       if (!key) key = keyFromText(cell(a, /^key:?$/i));
       if (!key) { const e = $('a.key, .key, [title="Key"]', a); if (e) key = keyFromText(e.textContent); }
       if (!key) for (const x of filterLinks(a, 'keyFilter')) { const k = keyFromText(x.textContent); if (k) { key = k; break; } }
     }
     const text = clean(scope.textContent);
-    if (!bpm) { const m = text.match(/\bBPM\b\s*:?\s*(\d{2,3}(?:\.\d+)?)\b/i); if (m) bpm = num(m[1]); }
+    if (!bpm) { const m = text.match(/\bBPM\b\s*:?\s*(\d{2,3}(?:\.\d+)?)\b/i); if (m) { bpm = num(m[1]); if (bpm) via = 'texto'; } }
     if (!key) { const m = text.match(/\bKey\b\s*:?\s*([A-G]\s?[♭♯#b]?\s?(?:maj(?:or)?|min(?:or)?))\b/i); if (m) key = keyFromText(m[1].replace(/\s+/g, '')); }
     // artistas (con su id) para poder abrir su página
     const ar = [];
@@ -623,7 +625,7 @@
       LS.set('coverSize', coverSize);
       refreshCovers();
     }
-    return { b: bpm, k: key, ar: ar.slice(0, 6) };
+    return { b: bpm, k: key, ar: ar.slice(0, 6), via };
   }
   const metaPending = new Map();
   const metaTried = new Set();
@@ -760,6 +762,9 @@
   .chip.mut{color:var(--mut);}
   .chip.key b{color:var(--acc);font-weight:700;}
   .chip.e{background:rgba(255,255,255,.85);color:#000;}
+  .cvw .bopen{position:absolute;left:8px;bottom:8px;z-index:2;display:flex;align-items:center;gap:5px;height:28px;padding:0 11px 0 9px;border-radius:999px;background:rgba(0,0,0,.58);color:#fff;font-size:12.5px;font-weight:700;}
+  .cvw .bopen i{width:14px;height:14px;display:block;}
+  .cvw .bopen:active{transform:scale(.94);}
   .idx{font-size:12.5px;color:var(--mut);font-variant-numeric:tabular-nums;font-weight:600;}
   .mid{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;}
   .cvw{position:relative;align-self:center;width:var(--cv,min(76vw,300px));height:var(--cv,min(76vw,300px));border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);background:#222 center/cover no-repeat;flex:none;}
@@ -966,6 +971,8 @@
   .opt .ol em{font-style:normal;font-size:13px;font-weight:500;color:var(--mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .opt.pri i{color:var(--acc);}
   .opt[disabled]{opacity:.4;}
+  a.opt{text-decoration:none;color:inherit;}
+  .opt.dim{opacity:.55;}
   .asub{color:var(--mut);font-size:14px;margin:-2px 0 8px;}
   textarea.diag{width:100%;height:220px;border-radius:12px;background:#0d0d10;color:#cfd;border:1px solid var(--line);font:11.5px/1.4 ui-monospace,Menlo,monospace;padding:10px;}
 
@@ -1009,6 +1016,8 @@
     .end .cin{flex-direction:row;flex-wrap:wrap;align-content:center;gap:8px 10px;overflow-y:auto;}
     .end h3{width:100%;font-size:19px;}
     .end p{width:100%;max-width:none;font-size:14px;}
+    .cvw .bopen{left:5px;bottom:5px;padding:0 7px;}
+    .cvw .bopen span{display:none;}
     .list{padding-bottom:calc(var(--sb) + 96px);}
     .mini{flex-wrap:nowrap;gap:10px;padding:8px;}
     .mini img{order:-2;}
@@ -2046,7 +2055,7 @@
     c.innerHTML = `<canvas class="bg" width="32" height="56"></canvas>
       <div class="cin">
         <div class="mid">
-          <div class="cvw"${small}><img alt="" decoding="async"><div class="pind">${i('play')}</div><div class="eq"><span></span><span></span><span></span><span></span></div></div>
+          <div class="cvw"${small}><img alt="" decoding="async"><div class="pind">${i('play')}</div><button class="bopen" aria-label="Abrir en Spotify, Apple Music o SoundCloud">${i('ext')}<span>Abrir en</span></button><div class="eq"><span></span><span></span><span></span><span></span></div></div>
           <div class="info">
             <div class="itext">
               <div class="eyebrow"><span class="ix">${esc(counterText(t))}</span>${where ? ' · <b>' + where + '</b>' : ''}</div>
@@ -2075,6 +2084,7 @@
     const vb = $('.vote', c);
     if (vb) vb.addEventListener('click', () => vote(t));
     $('.more', c).addEventListener('click', () => moreSheet(t));
+    $('.bopen', c).addEventListener('click', (e) => { e.stopPropagation(); openInSheet(t); }); // sin que cuente como toque en la portada (play / pausa)
     $('.art', c).addEventListener('click', () => openArtist(t));
     const rb = $('.relb', c);
     if (rb) rb.addEventListener('click', () => openRelease(t));
@@ -3266,6 +3276,7 @@
     } catch (e) {}
   }
   let lastAction = null;
+  let lastStatus = null; // lo último que dijo el reproductor de Soundeo sobre BPM y tono (para el diagnóstico)
   const favCount = () => { const s = $('#span-favorites'); return s ? clean(s.textContent) : null; };
   function paintFav(scope, t) {
     const on = isFav(t);
@@ -3585,6 +3596,7 @@
     if (t.labelId) opts.push({ label: t.label, hint: 'Sello · ver sus tracks', icon: 'tag', fn: () => openLabel(t) });
     if (t.genreId) opts.push({ label: t.genre, hint: 'Género · lo último disponible', icon: 'feed', fn: () => openGenre(t) });
     if (/^\d+$/.test(t.id)) opts.push({ label: 'Parecidas', hint: 'Lo que también descargan quienes bajan esta', icon: 'disc', fn: () => openSimilar(t) });
+    opts.push({ label: 'Abrir en Spotify, Apple Music o SoundCloud', icon: 'ext', fn: () => openInSheet(t) });
     opts.push({ label: 'Copiar nombre', hint: (t.artist ? t.artist + ' – ' : '') + t.name, icon: 'check', fn: () => copyText(t.full) });
     if (t.trackUrl) opts.push({ label: 'Abrir en la web de Soundeo', icon: 'ext', fn: () => { closeApp(true); location.href = t.trackUrl; } });
     if (t.vote) opts.push(isVoted(t) ? { label: 'Quitar me gusta', icon: 'heartOn', fn: () => vote(t) } : { label: 'Me gusta', hint: 'Vota para que esté disponible', icon: 'heart', fn: () => vote(t) });
@@ -3607,6 +3619,196 @@
     ta.select();
     try { document.execCommand('copy'); done(); } catch (e) { toast('No se pudo copiar'); }
     ta.remove();
+  }
+
+  /* ───────────── abrir la canción en Spotify / Apple Music / SoundCloud ───────────── */
+  // Apple Music: su buscador público da el enlace directo a la canción. Spotify: enlace directo solo con la app de
+  // desarrollador de Tiger conectada (PKCE: sin secreto y sin permisos sobre la cuenta, solo buscar); si no, su
+  // buscador con la canción ya escrita. SoundCloud: su buscador. Los enlaces son <a> de verdad, que es lo que hace
+  // que el iPhone abra la app de cada servicio (comprobado por Tiger con Spotify y Apple Music).
+  const SPOTIFY_CLIENT_ID = ''; // identificador público de la app de Spotify de Tiger (vacío = sin enlace directo)
+  const SPOTIFY_REDIRECT = 'https://soundeo.com/';
+  const SP_TOKEN_URL = 'https://accounts.spotify.com/api/token';
+  const SC_SEARCH = 'https://soundcloud.com/search/sounds?q=';
+  const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const fold = (s) => {
+    const raw = clean(String(s == null ? '' : s).toLowerCase());
+    let f = raw;
+    try { f = raw.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) {}
+    f = clean(f.replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' '));
+    return f || raw; // títulos en otros alfabetos: se comparan tal cual
+  };
+  const FEAT = /^(feat|ft|featuring|with)\b/i;
+  const MIX_WORD = /\b(mix|remix|edit|version|dub|rework|bootleg|vip|instrumental|remaster(ed)?|flip|refix)\b/i;
+  // «Nombre (Extended Mix)» / «Nombre - Extended Mix» → [nombre, mezcla]
+  function splitMix(title) {
+    const s = clean(title);
+    let m = s.match(/^(.*\S)\s*[([]([^()[\]]+)[)\]]$/);
+    if (m && !FEAT.test(m[2])) return [m[1], m[2]];
+    m = s.match(/^(.*\S)\s+[-–]\s+([^-–]+)$/);
+    if (m && MIX_WORD.test(m[2])) return [m[1], m[2]];
+    return [s, ''];
+  }
+  const baseOf = (s) => fold(String(s || '').replace(/[([]\s*(feat|ft|featuring|with)\b[^)\]]*[)\]]/ig, ' ').replace(/\s(feat|ft|featuring)\.?\s.*$/i, ' '));
+  // «Original Mix», «Extended Mix», «Radio Edit»… son la misma canción con otra duración; un remix es otra canción
+  const mixCore = (m) => fold(m).replace(/\b(mix|edit|version)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const genericMix = (m) => {
+    const f = mixCore(m);
+    return /^(|original|extended|radio|club|album|single|full|full length|main|short|long)$/.test(f) ? (f || 'original') : null;
+  };
+  const namedMix = (m) => mixCore(m).replace(/\b(original|extended|radio|club)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const artistsOf = (s) => String(s || '').split(/,|&|;|\/|\s+(?:feat|ft|featuring|vs|x|and|with)\.?\s+/i).map((a) => fold(a.replace(/\([^)]*\)/g, ' '))).filter(Boolean);
+  const sameArtist = (a, b) => a === b || (' ' + b + ' ').indexOf(' ' + a + ' ') >= 0 || (' ' + a + ' ').indexOf(' ' + b + ' ') >= 0;
+  // De los resultados de un buscador, el que es esta canción; si no está su mezcla, la misma canción en otra duración.
+  function pickMatch(t, items) {
+    const base = baseOf(t.name);
+    const want = genericMix(t.mix);
+    const wantNamed = namedMix(t.mix);
+    const mine = artistsOf(t.artist);
+    let best = null;
+    items.forEach((it, k) => {
+      const [nm, mx] = splitMix(it.title);
+      if (!base || baseOf(nm) !== base) return;
+      const theirs = [].concat(...(it.artists || []).map(artistsOf));
+      if (mine.length && theirs.length && !mine.some((a) => theirs.some((b) => sameArtist(a, b)))) return;
+      const g = genericMix(mx);
+      let score = 0;
+      if (want) score = g ? (g === want ? 3 : 2) : 0;
+      else score = !g && namedMix(mx) === wantNamed ? 3 : 0;
+      if (score && (!best || score > best.score)) best = { score, url: it.url, same: score === 3, mix: mx, k };
+    });
+    return best;
+  }
+  const firstArtist = (t) => clean(String(t.artist || '').split(/,| & | feat\.? | ft\.? | vs\.? /i)[0].replace(/\([^)]*\)/g, ' '));
+  const apiQuery = (t) => clean(firstArtist(t) + ' ' + t.name + (genericMix(t.mix) ? '' : ' ' + t.mix));
+  const linkQuery = (t) => clean((t.artist || '') + ' ' + t.name + (genericMix(t.mix) ? '' : ' ' + t.mix));
+
+  function appleFind(t) {
+    const cc = (((navigator.language || 'es-ES').split('-')[1]) || 'ES').toLowerCase();
+    const u = 'https://itunes.apple.com/search?' + new URLSearchParams({ term: apiQuery(t), media: 'music', entity: 'song', limit: '25', country: cc }).toString();
+    return fetch(u, { credentials: 'omit' }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then((j) => ((j && j.results) || []).filter((x) => x && x.trackViewUrl).map((x) => ({ title: x.trackName || '', artists: [x.artistName || ''], url: x.trackViewUrl })));
+  }
+
+  // Spotify: llave guardada en el móvil ({ at, exp, rt }); se renueva sola con el «refresh token»
+  const spConn = () => !!(SPOTIFY_CLIENT_ID && LS.get('sp', null));
+  function spSave(j, oldRt) { LS.set('sp', { at: j.access_token, exp: Date.now() + (+j.expires_in || 3600) * 1000, rt: j.refresh_token || oldRt || '' }); }
+  let spRefreshing = null;
+  function spToken(force) {
+    const s = LS.get('sp', null);
+    if (!SPOTIFY_CLIENT_ID || !s) return Promise.resolve(null);
+    if (!force && s.at && Date.now() < s.exp - 60000) return Promise.resolve(s.at);
+    if (!s.rt) { LS.del('sp'); return Promise.resolve(null); }
+    if (!spRefreshing) {
+      spRefreshing = fetch(SP_TOKEN_URL, { method: 'POST', headers: FORM, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: s.rt, client_id: SPOTIFY_CLIENT_ID }).toString() })
+        .then((r) => r.json().then((j) => {
+          if (r.ok && j.access_token) { spSave(j, s.rt); return j.access_token; }
+          if (r.status === 400 || r.status === 401) LS.del('sp'); // el permiso ya no vale: habrá que conectar otra vez
+          return null;
+        }))
+        .catch(() => null)
+        .then((x) => { spRefreshing = null; return x; });
+    }
+    return spRefreshing;
+  }
+  function spotifyFind(t, again) {
+    return spToken(again).then((tok) => {
+      if (!tok) { const e = new Error('sin conectar'); e.noconn = true; throw e; }
+      return fetch('https://api.spotify.com/v1/search?' + new URLSearchParams({ q: apiQuery(t), type: 'track', limit: '10' }).toString(), { headers: { Authorization: 'Bearer ' + tok } }).then((r) => {
+        if (r.status === 401 && !again) return spotifyFind(t, true);
+        if (r.status === 403) throw new Error('esta cuenta de Spotify no está autorizada en la app');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json().then((j) => ((j && j.tracks && j.tracks.items) || []).filter((x) => x && x.external_urls && x.external_urls.spotify).map((x) => ({ title: x.name || '', artists: (x.artists || []).map((a) => a.name), url: x.external_urls.spotify })));
+      });
+    });
+  }
+  const b64url = (bytes) => btoa(String.fromCharCode.apply(null, Array.from(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // Conectar: se va a Spotify a dar permiso y Spotify vuelve a soundeo.com con un código (ver spCallback).
+  function spConnect() {
+    if (!SPOTIFY_CLIENT_ID) return;
+    let ver;
+    let state;
+    try { ver = b64url(crypto.getRandomValues(new Uint8Array(48))); state = b64url(crypto.getRandomValues(new Uint8Array(12))); } catch (e) { toast('Este navegador no deja conectar con Spotify'); return; }
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(ver)).then((h) => {
+      LS.set('spAuth', { ver, state, t: Date.now(), back: location.origin + location.pathname + location.search + '#sx=' + view });
+      SS.set('navOnce', Date.now());
+      saveNav();
+      location.href = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({ client_id: SPOTIFY_CLIENT_ID, response_type: 'code', redirect_uri: SPOTIFY_REDIRECT, code_challenge_method: 'S256', code_challenge: b64url(new Uint8Array(h)), state }).toString();
+    }).catch(() => toast('No se ha podido empezar la conexión con Spotify'));
+  }
+  // Vuelta de Spotify (https://soundeo.com/?code=…&state=…): se cambia el código por la llave y se vuelve a donde se estaba.
+  function spCallback() {
+    if (!SPOTIFY_CLIENT_ID) return false;
+    const a = LS.get('spAuth', null);
+    if (!a) return false;
+    const q = new URLSearchParams(location.search);
+    if (!q.get('state') || q.get('state') !== a.state) { if (Date.now() - a.t > 15 * 60000) LS.del('spAuth'); return false; }
+    LS.del('spAuth');
+    const back = (msg) => { LS.set('spMsg', msg); location.replace(a.back && String(a.back).indexOf(location.origin + '/') === 0 ? a.back : startUrl() + '#sx=list'); };
+    if (!q.get('code')) { back('Spotify no se ha conectado' + (q.get('error') ? ' (' + short(q.get('error'), 40) + ')' : '')); return true; }
+    pageNotice('conectando con Spotify…', 15000, true);
+    fetch(SP_TOKEN_URL, { method: 'POST', headers: FORM, body: new URLSearchParams({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: SPOTIFY_REDIRECT, client_id: SPOTIFY_CLIENT_ID, code_verifier: a.ver }).toString() })
+      .then((r) => r.json().then((j) => {
+        if (!r.ok || !j.access_token) throw new Error(j.error_description || j.error || 'HTTP ' + r.status);
+        spSave(j);
+        back('Spotify conectado: «Abrir en» ya lleva a la canción');
+      }))
+      .catch((e) => back('No se ha podido conectar Spotify: ' + short(e && e.message, 80)));
+    return true;
+  }
+
+  const openLog = []; // últimas búsquedas (para el diagnóstico)
+  const openCache = new Map(); // «servicio:id» → resultado
+  function openFind(svc, t) {
+    const key = svc + ':' + t.id;
+    if (openCache.has(key)) return Promise.resolve(openCache.get(key));
+    const t0 = performance.now();
+    const log = { svc, q: apiQuery(t) };
+    const done = () => { log.ms = Math.round(performance.now() - t0); openLog.push(log); if (openLog.length > 8) openLog.shift(); };
+    return (svc === 'apple' ? appleFind(t) : spotifyFind(t)).then((items) => {
+      const m = pickMatch(t, items);
+      const res = { found: !!m, url: m ? m.url : '', same: !!(m && m.same), mix: m ? m.mix : '' };
+      openCache.set(key, res);
+      Object.assign(log, { n: items.length, first: items[0] ? short(items[0].title + ' · ' + (items[0].artists || []).join(', '), 70) : null, pick: m ? short(items[m.k].title, 60) : null, same: res.same });
+      done();
+      return res;
+    }, (e) => { log.err = short(e && e.message, 80); done(); throw e; });
+  }
+  function openInSheet(t) {
+    const e = encodeURIComponent(linkQuery(t));
+    const s = $('.s-action', root);
+    $('h2', s).textContent = 'Abrir en';
+    const b = $('.sb', s);
+    const spOn = spConn();
+    const row = (cls, name, href, hint) => `<a class="opt oin ${cls}" target="_blank" rel="noopener" href="${esc(href)}">${i('ext')}<span class="ol"><span>${name}</span><em>${esc(hint)}</em></span></a>`;
+    b.innerHTML = `<div class="asub">${esc((t.artist ? t.artist + ' – ' : '') + t.name + (t.mix ? ' (' + t.mix + ')' : ''))}</div>` +
+      row('osp', 'Spotify', 'https://open.spotify.com/search/' + e, spOn ? 'Buscando la canción…' : 'Abre su buscador con la canción escrita') +
+      row('oap', 'Apple Music', 'https://music.apple.com/search?term=' + e, 'Buscando la canción…') +
+      row('osc', 'SoundCloud', SC_SEARCH + e, 'Abre su buscador') +
+      (SPOTIFY_CLIENT_ID && !spOn ? `<button class="opt pri ospc">${i('up')}<span class="ol"><span>Conectar Spotify</span><em>Una vez, para que abra directamente la canción</em></span></button>` : '');
+    $$('a.oin', b).forEach((a) => a.addEventListener('click', () => setTimeout(closeSheets, 400)));
+    const sc = $('.ospc', b);
+    if (sc) sc.addEventListener('click', spConnect);
+    const mark = {};
+    b._open = mark;
+    const paint = (cls, svc) => {
+      const set = (href, hint, dim) => {
+        const a = $('.' + cls, b);
+        if (!a || b._open !== mark) return; // la hoja ya enseña otra cosa
+        if (href) a.setAttribute('href', href);
+        a.classList.toggle('dim', !!dim);
+        $('em', a).textContent = hint;
+      };
+      openFind(svc, t).then((r) => {
+        if (r.found && r.same) set(r.url, 'Abre la canción');
+        else if (r.found) set(r.url, 'No está esta mezcla: abre ' + (r.mix ? '«' + r.mix + '»' : 'la versión normal'));
+        else set('', 'No la encuentro: abre su buscador', true);
+      }, (err) => set('', err && err.noconn ? 'Abre su buscador con la canción escrita' : 'No se ha podido buscar (' + short(err && err.message, 50) + '): abre su buscador', !(err && err.noconn)));
+    };
+    paint('oap', 'apple');
+    if (spOn) paint('osp', 'spotify');
+    b.scrollTop = 0;
+    openSheet('s-action');
   }
 
   /* ───────────── ajustes ───────────── */
@@ -3670,6 +3872,7 @@
       <button class="opt goweb">${i('ext')}<span>Ver la web original</span></button>
       <button class="opt rsheard">${i('back')}<span>Olvidar escuchadas</span><small>${heard.size}</small></button>
       ${loader() ? `<button class="opt oupd">${i('fwd')}<span>Buscar actualización</span><small>v${VERSION}</small></button>` : ''}
+      ${SPOTIFY_CLIENT_ID ? `<button class="opt ospot">${i('ext')}<span class="ol"><span>Spotify</span><em>${spConn() ? 'Conectado · toca para desconectar' : 'Conectar para que «Abrir en» lleve a la canción'}</em></span></button>` : ''}
       <button class="opt diag">${i('more')}<span>Diagnóstico (para Claude)</span></button>
       <div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
     `;
@@ -3783,6 +3986,14 @@
       toast('Historial de escuchadas borrado');
     });
     $('.diag', b).addEventListener('click', diagnostics);
+    const os = $('.ospot', b);
+    if (os) os.addEventListener('click', () => {
+      if (!spConn()) { spConnect(); return; }
+      LS.del('sp');
+      openCache.clear();
+      toast('Spotify desconectado');
+      openSettings();
+    });
     const ou = $('.oupd', b);
     if (ou) ou.addEventListener('click', () => { closeSheets(); checkUpdate(); });
     openSheet('s-settings');
@@ -3811,44 +4022,6 @@
       };
     } catch (e) { return { err: String(e) }; }
   }
-  // TEMPORAL (1.5.0): ¿deja Safari que la app hable con otros servicios desde soundeo.com? De eso dependen el botón
-  // «abrir en Spotify / Apple Music / SoundCloud» y el buzón con Dropbox. No se manda nada del usuario (ni cookies):
-  // peticiones sin sesión, con una llave inventada; lo normal es que contesten «401, no autorizado», y eso ya vale.
-  function probeNet() {
-    const csp = [];
-    const onCsp = (e) => { if (csp.length < 6) csp.push({ uri: short(e.blockedURI, 60), dir: short(e.violatedDirective, 40) }); };
-    document.addEventListener('securitypolicyviolation', onCsp);
-    const form = { 'Content-Type': 'application/x-www-form-urlencoded' };
-    const fake = { Authorization: 'Bearer sxfeed-prueba' };
-    const tests = {
-      spotifyApi: ['https://api.spotify.com/v1/search?q=test&type=track&limit=1', { headers: fake }],
-      spotifyToken: ['https://accounts.spotify.com/api/token', { method: 'POST', headers: form, body: 'grant_type=refresh_token&refresh_token=x&client_id=x' }],
-      apple: ['https://itunes.apple.com/search?term=daft+punk+around+the+world&entity=song&limit=1'],
-      dropboxApi: ['https://api.dropboxapi.com/2/files/list_folder', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, fake), body: '{"path":""}' }],
-      dropboxContent: ['https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: Object.assign({ 'Dropbox-API-Arg': '{"path":"/x"}' }, fake) }],
-      dropboxToken: ['https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: form, body: 'grant_type=refresh_token&refresh_token=x&client_id=x' }],
-      soundcloud: ['https://api.soundcloud.com/tracks?q=test&limit=1'],
-    };
-    const one = (url, init) => {
-      const t0 = performance.now();
-      const ms = () => Math.round(performance.now() - t0);
-      let ac = null;
-      let to = 0;
-      try { ac = new AbortController(); to = setTimeout(() => ac.abort(), 20000); } catch (e) {}
-      return fetch(url, Object.assign({ credentials: 'omit', cache: 'no-store', signal: ac ? ac.signal : undefined }, init || {}))
-        .then((r) => r.text().then((b) => ({ s: r.status, ms: ms(), body: short(b, 90) }), () => ({ s: r.status, ms: ms() })))
-        .catch((e) => ({ err: short((e && e.name ? e.name + ': ' : '') + (e && e.message), 80), ms: ms() }))
-        .then((x) => { clearTimeout(to); return x; });
-    };
-    const keys = Object.keys(tests);
-    return Promise.all(keys.map((k) => one(tests[k][0], tests[k][1]))).then((res) => {
-      document.removeEventListener('securitypolicyviolation', onCsp);
-      const out = {};
-      keys.forEach((k, n) => { out[k] = res[n]; });
-      if (csp.length) out.csp = csp;
-      return out;
-    });
-  }
   let diagBusy = false;
   async function diagnostics() {
     if (diagBusy) return;
@@ -3856,8 +4029,6 @@
     try { await diagnosticsRun(); } finally { diagBusy = false; }
   }
   async function diagnosticsRun() {
-    const wait = toast('Preparando el diagnóstico… (puede tardar hasta 20 s)', '', null, 24000);
-    const netP = probeNet().catch((e) => ({ err: String(e) }));
     const t = deck[activeIdx] || tracks[0];
     const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
     const out = {
@@ -3915,12 +4086,12 @@
         const scope = stripChrome(doc);
         out.trackRows = scope ? $$('tr', scope).slice(0, 14).map((tr) => Array.from(tr.children).slice(0, 2).map((c) => short(c.textContent, 50))) : null;
         const pm = parseTrackPage(html, t);
-        out.trackParsed = pm ? { b: pm.b, k: pm.k } : null;
-        if (!out.trackRows || !out.trackRows.length) {
-          const src = scope ? scope.innerHTML.replace(/\s+/g, ' ') : '';
-          const k = src.search(/bpm/i);
-          out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 400), k + 400) : src.slice(0, 800);
-        }
+        out.trackParsed = pm ? { b: pm.b, k: pm.k, via: pm.via } : null;
+        // el trozo de la página donde están de verdad el BPM y el tono (enlaces que filtran por ellos)
+        const src = scope ? scope.innerHTML.replace(/\s+/g, ' ') : '';
+        const around = (re, n) => { const k = src.search(re); return k >= 0 ? src.slice(Math.max(0, k - n), k + n) : null; };
+        out.trackBpmSnippet = around(/bpmFilter=[^&"']/, 260) || around(/>\s*BPM\b/i, 260);
+        out.trackKeySnippet = around(/keyFilter=[^&"']/, 200) || around(/>\s*Key\b/i, 200);
       } catch (e) { out.trackErr = String(e); }
     }
     // ¿algún BPM de los que se enseñan se sale del filtro de la lista? (Soundeo ya la filtra: no debería)
@@ -3932,13 +4103,13 @@
       const bad = known.filter((x) => metaCache[x.id].b < lo - 1 || metaCache[x.id].b > hi + 1);
       out.bpmCheck = { filter: lo + '-' + hi, known: known.length, out: bad.length, samples: bad.slice(0, 5).map((x) => ({ id: x.id, b: metaCache[x.id].b, label: short(x.label, 30), artist: short(x.artist, 30) })) };
     }
-    out.net = await netP;
-    if (wait) wait.remove();
-    // enlaces de prueba: ¿abre el iPhone la app de cada servicio con la canción buscada?
+    out.lastStatus = lastStatus;
+    out.open = { spotify: SPOTIFY_CLIENT_ID ? (spConn() ? 'conectado' : 'sin conectar') : 'sin app', log: openLog };
+    // enlaces de prueba: Spotify y Apple Music ya abren su app con la canción buscada; SoundCloud abría su buscador vacío
     const song = current || t;
     const q = song ? clean((song.artist || '') + ' ' + song.name) : 'Daft Punk Around the World';
-    const links = [['Spotify', 'https://open.spotify.com/search/' + encodeURIComponent(q)], ['Apple Music', 'https://music.apple.com/search?term=' + encodeURIComponent(q)], ['SoundCloud', 'https://soundcloud.com/search?q=' + encodeURIComponent(q)]];
-    showDiag('Diagnóstico', JSON.stringify(out, null, 1), '<div class="note" style="margin-top:18px">Prueba de enlaces: toca cada uno y dime si se abre su app con «' + esc(q) + '» buscado, o si se queda en Safari.</div><div class="row2" style="margin-top:8px">' +
+    const links = [['SoundCloud A', 'https://soundcloud.com/search/sounds?q=' + encodeURIComponent(q)], ['SoundCloud B', 'https://m.soundcloud.com/search?q=' + encodeURIComponent(q)], ['SoundCloud C', 'soundcloud://search?q=' + encodeURIComponent(q)]];
+    showDiag('Diagnóstico', JSON.stringify(out, null, 1), '<div class="note" style="margin-top:18px">Prueba para SoundCloud: toca cada uno y dime cuál abre SoundCloud con «' + esc(q) + '» ya buscado (y qué hacen los otros).</div><div class="row2" style="margin-top:8px">' +
       links.map((l) => '<a class="btn tl" target="_blank" rel="noopener" href="' + esc(l[1]) + '">' + esc(l[0]) + '</a>').join('') + '</div>');
   }
   function showDiag(title, txt, extra) {
@@ -4152,6 +4323,12 @@
         // iOS solo permite sonar tras un toque; si no deja, se queda en pausa
         if (deck[activeIdx]) load(deck[activeIdx], true);
       }
+      const spm = LS.get('spMsg', '');
+      if (spm) { LS.del('spMsg'); setTimeout(() => toast(spm), 900); }
+      if (!LS.get('hint16', false)) {
+        LS.set('hint16', true);
+        setTimeout(() => toast('Nuevo: «Abrir en» lleva la canción a Spotify, Apple Music o SoundCloud', 'Vale', () => {}), 4200);
+      }
       if (loggedOut) setTimeout(() => toast('Sin sesión de Soundeo en esta pestaña. ¿Es una pestaña privada?', 'Iniciar sesión', goLogin), 1200);
     } else tellLogin();
   }
@@ -4159,6 +4336,7 @@
   // Si algo falla al arrancar, que la web de Soundeo siga usable y se vea qué ha pasado.
   function boot() {
     try {
+      if (spCallback()) return;
       init();
     } catch (e) {
       try {
