@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.4.2';
+  const VERSION = '1.5.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -804,7 +804,7 @@
   @keyframes pulse{50%{opacity:.6}}
 
   /* lista */
-  .list{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) var(--sr) calc(var(--sb) + 96px) var(--sl);display:none;overscroll-behavior:contain;}
+  .list{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:var(--top) var(--sr) calc(var(--sb) + 124px) var(--sl);display:none;overscroll-behavior:contain;}
   .app[data-view=list] .list{display:block;}
   .lhead{padding:12px 16px 6px;}
   .fsum{width:100%;text-align:left;background:var(--glass);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;}
@@ -847,7 +847,7 @@
   .pager .btn[disabled]{opacity:.35;}
 
   /* mini reproductor (lista) */
-  .mini{position:absolute;left:calc(var(--sl) + 8px);right:calc(var(--sr) + 8px);bottom:calc(var(--sb) + 8px);z-index:30;display:none;align-items:center;gap:10px;padding:8px 8px 8px 8px;border-radius:16px;
+  .mini{position:absolute;left:calc(var(--sl) + 8px);right:calc(var(--sr) + 8px);bottom:calc(var(--sb) + 8px);z-index:30;display:none;flex-wrap:wrap;align-items:center;gap:0 10px;padding:2px 8px 8px 8px;border-radius:16px;
     background:rgba(40,40,46,.98);box-shadow:0 10px 30px rgba(0,0,0,.5);overflow:hidden;}
   .app[data-view=list].has-cur .mini{display:flex;}
   .mini img{width:46px;height:46px;border-radius:9px;object-fit:cover;background:#333;flex:none;}
@@ -857,7 +857,14 @@
   .mini .mb{width:40px;height:40px;display:grid;place-items:center;flex:none;}
   .mini .mb i{width:24px;height:24px;display:block;}
   .mini .mb.on{color:var(--gold);}
-  .mini .mprog{position:absolute;left:0;bottom:0;height:2.5px;background:var(--fg);width:0;}
+  /* barra para avanzar por la canción desde la lista (misma barra que la del feed, más baja) */
+  .mseek{flex:0 0 100%;display:flex;align-items:center;gap:8px;height:28px;font-size:10.5px;font-weight:600;color:var(--mut);font-variant-numeric:tabular-nums;}
+  .mseek span{width:30px;flex:none;}
+  .mseek span:last-child{text-align:right;}
+  .mseek .bar{height:28px;}
+  .mseek .bar::before,.mseek .bar .fill,.mseek .bar .buf{top:12px;}
+  .mseek .bar .knob{top:7px;}
+  a.btn{text-decoration:none;color:inherit;}
 
   /* etiqueta de dónde estás (feed) */
   .ctx{position:absolute;left:50%;top:calc(var(--st) + 56px);transform:translateX(-50%);z-index:29;display:none;align-items:center;max-width:calc(100% - 40px);height:28px;padding:0 13px;border-radius:999px;background:rgba(0,0,0,.45);font-size:12.5px;font-weight:700;color:var(--fg);white-space:nowrap;}
@@ -977,6 +984,11 @@
     .end .cin{flex-direction:row;flex-wrap:wrap;align-content:center;gap:8px 10px;overflow-y:auto;}
     .end h3{width:100%;font-size:19px;}
     .end p{width:100%;max-width:none;font-size:14px;}
+    .list{padding-bottom:calc(var(--sb) + 96px);}
+    .mini{flex-wrap:nowrap;gap:10px;padding:8px;}
+    .mini img{order:-2;}
+    .mini .mm{order:-1;}
+    .mseek{flex:1.3 1 0;min-width:0;}
   }
   /* y si además Safari enseña sus barras (muy poca altura), fuera las etiquetas de tono/BPM */
   @media (orientation:landscape) and (max-height:300px){
@@ -1068,13 +1080,13 @@
             </div>
           </div>
           <div class="mini">
+            <div class="mseek"><span class="mtc">0:00</span><div class="bar"><div class="buf"></div><div class="fill"></div><div class="knob"></div></div><span class="mtd">0:00</span></div>
             <img alt="">
             <div class="mm"><div class="mt"></div><div class="ma"></div></div>
             <button class="mb mfav" aria-label="Guardar">${i('star')}</button>
             <button class="mb mplay" aria-label="Reproducir">${i('play')}</button>
             <button class="mb mnext" aria-label="Siguiente">${i('next')}</button>
             <button class="mb mexp" aria-label="Abrir en feed">${i('up')}</button>
-            <div class="mprog"></div>
           </div>
           <div class="srch">
             <form class="srow" action="#">
@@ -1129,7 +1141,8 @@
     $$('.sclose', sr).forEach((b) => b.addEventListener('click', closeSheets));
     $('.sback', sr).addEventListener('click', closeSearch);
     $('.srow', sr).addEventListener('submit', (e) => { e.preventDefault(); doSearch($('.sq', srchEl).value); });
-    setupBar($('.bar', sr));
+    setupBar($('.controls .bar', sr));
+    setupBar($('.mseek .bar', sr));
     setupListEvents();
     feedEl.addEventListener('scroll', onFeedScroll, { passive: true });
     setupGestures();
@@ -1478,6 +1491,8 @@
     let m = null;
     miniEl.addEventListener('touchstart', (e) => {
       const t = e.touches[0];
+      // en la barra de avance el dedo arrastra por la canción: ahí no cuenta como gesto de siguiente / anterior
+      if (e.target.closest && e.target.closest('.mseek')) { m = null; return; }
       m = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
     }, { passive: true });
     miniEl.addEventListener('touchend', (e) => {
@@ -2953,19 +2968,20 @@
   let progEls = null;
   function paintProgress() {
     if (!root) return;
-    if (!progEls) progEls = { fill: $('.fill', ctrlEl), knob: $('.knob', ctrlEl), tc: $('.tc', ctrlEl), td: $('.td', ctrlEl), buf: $('.buf', ctrlEl), mp: $('.mprog', miniEl) };
+    if (!progEls) {
+      const of = (box) => ({ fill: $('.fill', box), knob: $('.knob', box), buf: $('.buf', box) });
+      progEls = { feed: Object.assign(of(ctrlEl), { tc: $('.tc', ctrlEl), td: $('.td', ctrlEl) }), mini: Object.assign(of(miniEl), { tc: $('.mtc', miniEl), td: $('.mtd', miniEl) }) };
+    }
     const d = audio.duration;
     const c = seekTarget != null ? seekTarget : audio.currentTime;
     const pct = isFinite(d) && d > 0 ? (c / d) * 100 : 0;
-    if (view === 'feed') {
-      progEls.fill.style.width = pct + '%';
-      progEls.knob.style.left = pct + '%';
-      progEls.tc.textContent = fmtTime(c);
-      progEls.td.textContent = isFinite(d) ? fmtTime(d) : '0:00';
-      progEls.buf.style.width = (isFinite(d) && d > 0 ? Math.min(100, (bufSecs(audio) / d) * 100) : 0) + '%';
-    } else {
-      progEls.mp.style.width = pct + '%';
-    }
+    // en el feed, la barra de los controles; en la lista, la del mini reproductor
+    const p = view === 'feed' ? progEls.feed : progEls.mini;
+    p.fill.style.width = pct + '%';
+    p.knob.style.left = pct + '%';
+    p.tc.textContent = fmtTime(c);
+    p.td.textContent = isFinite(d) ? fmtTime(d) : '0:00';
+    p.buf.style.width = (isFinite(d) && d > 0 ? Math.min(100, (bufSecs(audio) / d) * 100) : 0) + '%';
   }
   function setupBar(bar) {
     let dragging = false;
@@ -3770,7 +3786,53 @@
       };
     } catch (e) { return { err: String(e) }; }
   }
+  // TEMPORAL (1.5.0): ¿deja Safari que la app hable con otros servicios desde soundeo.com? De eso dependen el botón
+  // «abrir en Spotify / Apple Music / SoundCloud» y el buzón con Dropbox. No se manda nada del usuario (ni cookies):
+  // peticiones sin sesión, con una llave inventada; lo normal es que contesten «401, no autorizado», y eso ya vale.
+  function probeNet() {
+    const csp = [];
+    const onCsp = (e) => { if (csp.length < 6) csp.push({ uri: short(e.blockedURI, 60), dir: short(e.violatedDirective, 40) }); };
+    document.addEventListener('securitypolicyviolation', onCsp);
+    const form = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    const fake = { Authorization: 'Bearer sxfeed-prueba' };
+    const tests = {
+      spotifyApi: ['https://api.spotify.com/v1/search?q=test&type=track&limit=1', { headers: fake }],
+      spotifyToken: ['https://accounts.spotify.com/api/token', { method: 'POST', headers: form, body: 'grant_type=refresh_token&refresh_token=x&client_id=x' }],
+      apple: ['https://itunes.apple.com/search?term=daft+punk+around+the+world&entity=song&limit=1'],
+      dropboxApi: ['https://api.dropboxapi.com/2/files/list_folder', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, fake), body: '{"path":""}' }],
+      dropboxContent: ['https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: Object.assign({ 'Dropbox-API-Arg': '{"path":"/x"}' }, fake) }],
+      dropboxToken: ['https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: form, body: 'grant_type=refresh_token&refresh_token=x&client_id=x' }],
+      soundcloud: ['https://api.soundcloud.com/tracks?q=test&limit=1'],
+    };
+    const one = (url, init) => {
+      const t0 = performance.now();
+      const ms = () => Math.round(performance.now() - t0);
+      let ac = null;
+      let to = 0;
+      try { ac = new AbortController(); to = setTimeout(() => ac.abort(), 6000); } catch (e) {}
+      return fetch(url, Object.assign({ credentials: 'omit', cache: 'no-store', signal: ac ? ac.signal : undefined }, init || {}))
+        .then((r) => r.text().then((b) => ({ s: r.status, ms: ms(), body: short(b, 90) }), () => ({ s: r.status, ms: ms() })))
+        .catch((e) => ({ err: short((e && e.name ? e.name + ': ' : '') + (e && e.message), 80), ms: ms() }))
+        .then((x) => { clearTimeout(to); return x; });
+    };
+    const keys = Object.keys(tests);
+    return Promise.all(keys.map((k) => one(tests[k][0], tests[k][1]))).then((res) => {
+      document.removeEventListener('securitypolicyviolation', onCsp);
+      const out = {};
+      keys.forEach((k, n) => { out[k] = res[n]; });
+      if (csp.length) out.csp = csp;
+      return out;
+    });
+  }
+  let diagBusy = false;
   async function diagnostics() {
+    if (diagBusy) return;
+    diagBusy = true;
+    try { await diagnosticsRun(); } finally { diagBusy = false; }
+  }
+  async function diagnosticsRun() {
+    toast('Preparando el diagnóstico… (unos segundos)');
+    const netP = probeNet().catch((e) => ({ err: String(e) }));
     const t = deck[activeIdx] || tracks[0];
     const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
     const out = {
@@ -3830,13 +3892,19 @@
         out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 400), k + 400) : src.slice(0, 800);
       } catch (e) { out.trackErr = String(e); }
     }
-    showDiag('Diagnóstico', JSON.stringify(out, null, 1));
+    out.net = await netP;
+    // enlaces de prueba: ¿abre el iPhone la app de cada servicio con la canción buscada?
+    const song = current || t;
+    const q = song ? clean((song.artist || '') + ' ' + song.name) : 'Daft Punk Around the World';
+    const links = [['Spotify', 'https://open.spotify.com/search/' + encodeURIComponent(q)], ['Apple Music', 'https://music.apple.com/search?term=' + encodeURIComponent(q)], ['SoundCloud', 'https://soundcloud.com/search?q=' + encodeURIComponent(q)]];
+    showDiag('Diagnóstico', JSON.stringify(out, null, 1), '<div class="note" style="margin-top:18px">Prueba de enlaces: toca cada uno y dime si se abre su app con «' + esc(q) + '» buscado, o si se queda en Safari.</div><div class="row2" style="margin-top:8px">' +
+      links.map((l) => '<a class="btn tl" target="_blank" rel="noopener" href="' + esc(l[1]) + '">' + esc(l[0]) + '</a>').join('') + '</div>');
   }
-  function showDiag(title, txt) {
+  function showDiag(title, txt, extra) {
     const s = $('.s-action', root);
     $('h2', s).textContent = title;
     const b = $('.sb', s);
-    b.innerHTML = '<div class="note" style="margin-top:0">Copia esto y pégamelo en el chat (no incluye contraseñas ni cookies).</div><textarea class="diag" readonly></textarea><div class="stack"><button class="btn pri full bcopy">Copiar</button></div>';
+    b.innerHTML = '<div class="note" style="margin-top:0">Copia esto y pégamelo en el chat (no incluye contraseñas ni cookies).</div><textarea class="diag" readonly></textarea><div class="stack"><button class="btn pri full bcopy">Copiar</button></div>' + (extra || '');
     $('textarea', b).value = txt;
     $('.bcopy', b).addEventListener('click', () => copyText(txt));
     openSheet('s-action');
