@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.5.0';
+  const VERSION = '1.5.1';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -514,11 +514,16 @@
         if (t) t.siteHeard = true;
         const tr = r && r.track;
         if (!tr) return;
+        // BPM y tono vienen aquí como datos sueltos (no hay que buscarlos en una página): si llegan, mandan
         const old = metaCache[id] || {};
-        if (!old.b || !old.k) {
-          const m = { b: old.b || num(tr.bpm), k: old.k || keyFromText(String(tr.key || '').replace(/\s\(.*\)/, '')) };
+        const nb = bpmOf(tr.bpm == null ? '' : String(tr.bpm)) || old.b || null;
+        const nk = keyFromText(String(tr.key || '').replace(/\s*\(.*\)/, '')) || old.k || null;
+        if (nb !== (old.b || null) || nk !== (old.k || null)) {
+          const m = { b: nb, k: nk };
           if (old.ar) m.ar = old.ar;
-          if (m.b || m.k) { metaCache[id] = m; saveMeta(); if (t) paintMeta(t); }
+          metaCache[id] = m;
+          saveMeta();
+          if (t) paintMeta(t);
         }
         if (tr.hasOwnProperty('favored') && !favPending.has(id)) { setFavKnown(id, !!tr.favored, t); repaintFav(id); }
         if (t && t.vote && !votePending.has(id)) {
@@ -535,6 +540,8 @@
     myDownloads.add(id);
     LS.set('downloaded', Array.from(myDownloads).slice(-3000));
   }
+  // (1.5.1) Lo guardado hasta ahora podía traer BPM o tonos mal leídos (ver parseTrackPage): se vacía una vez.
+  if (LS.get('metaV', 0) < 2) { LS.del('meta'); LS.set('metaV', 2); }
   const metaCache = LS.get('meta', {});
   let metaSaveT = 0;
   function saveMeta() {
@@ -552,6 +559,11 @@
     if (!m) return null;
     const n = Math.round(parseFloat(m[0].replace(',', '.')));
     return n >= 50 && n <= 250 ? n : null;
+  };
+  // Un BPM solo vale si el texto ES el número («128», «128.5», «128 BPM»), no si lo lleva dentro («Room 104»).
+  const bpmOf = (s) => {
+    const m = clean(s).match(/^(?:bpm\s*:?\s*)?(\d{2,3}(?:[.,]\d+)?)(?:\s*bpm)?$/i);
+    return m ? num(m[1]) : null;
   };
   function keyFromText(s) {
     const k = parseKey(String(s || '').slice(0, 10));
@@ -571,14 +583,27 @@
     const areas = own ? [own, scope] : [scope];
     let bpm = null;
     let key = null;
+    // La ficha del track es una tabla: «BPM | 128», «Key | Amin». Los enlaces de artista, sello y género llevan
+    // también «bpmFilter=» y «keyFilter=» en su dirección (vacíos), así que no vale cualquier enlace: con el sello
+    // «Room 104» salían 104 BPM. Solo cuentan la fila con ese nombre o un enlace que filtre de verdad por BPM / tono.
+    const cell = (a, re) => {
+      for (const tr of $$('tr', a)) {
+        const c = tr.children;
+        if (c.length >= 2 && re.test(clean(c[0].textContent))) return clean(c[1].textContent);
+      }
+      return '';
+    };
+    const filterLinks = (a, name) => $$('a[href*="' + name + '="]', a).filter((x) => !!paramOf(x.getAttribute('href'), name));
     for (const a of areas) {
-      if (!bpm) { const e = $('a.bpm, .bpm, [title="BPM"]', a); if (e) bpm = num(e.textContent); }
-      if (!bpm) for (const x of $$('a[href*="bpmFilter="]', a)) { const n = num(x.textContent); if (n) { bpm = n; break; } }
+      if (!bpm) bpm = bpmOf(cell(a, /^bpm:?$/i));
+      if (!bpm) { const e = $('a.bpm, .bpm, [title="BPM"]', a); if (e) bpm = bpmOf(e.textContent); }
+      if (!bpm) for (const x of filterLinks(a, 'bpmFilter')) { const n = bpmOf(x.textContent); if (n) { bpm = n; break; } }
+      if (!key) key = keyFromText(cell(a, /^key:?$/i));
       if (!key) { const e = $('a.key, .key, [title="Key"]', a); if (e) key = keyFromText(e.textContent); }
-      if (!key) for (const x of $$('a[href*="keyFilter="]', a)) { const k = keyFromText(x.textContent); if (k) { key = k; break; } }
+      if (!key) for (const x of filterLinks(a, 'keyFilter')) { const k = keyFromText(x.textContent); if (k) { key = k; break; } }
     }
     const text = clean(scope.textContent);
-    if (!bpm) { const m = text.match(/\bBPM\b\s*:?\s*(\d{2,3}(?:\.\d+)?)/i) || text.match(/(\d{2,3}(?:\.\d+)?)\s*BPM\b/i); if (m) bpm = num(m[1]); }
+    if (!bpm) { const m = text.match(/\bBPM\b\s*:?\s*(\d{2,3}(?:\.\d+)?)\b/i); if (m) bpm = num(m[1]); }
     if (!key) { const m = text.match(/\bKey\b\s*:?\s*([A-G]\s?[♭♯#b]?\s?(?:maj(?:or)?|min(?:or)?))\b/i); if (m) key = keyFromText(m[1].replace(/\s+/g, '')); }
     // artistas (con su id) para poder abrir su página
     const ar = [];
@@ -2441,7 +2466,7 @@
     const r = listRowById(t.id);
     if (r) {
       const x = $('.rx', r);
-      if (x && !x.dataset.meta && (m.b || m.k)) { x.dataset.meta = '1'; x.textContent = metaLine(t); }
+      if (x && (m.b || m.k)) { const tx = metaLine(t); if (x.textContent !== tx) x.textContent = tx; }
     }
   }
   function refreshCovers() {
@@ -3809,7 +3834,7 @@
       const ms = () => Math.round(performance.now() - t0);
       let ac = null;
       let to = 0;
-      try { ac = new AbortController(); to = setTimeout(() => ac.abort(), 6000); } catch (e) {}
+      try { ac = new AbortController(); to = setTimeout(() => ac.abort(), 20000); } catch (e) {}
       return fetch(url, Object.assign({ credentials: 'omit', cache: 'no-store', signal: ac ? ac.signal : undefined }, init || {}))
         .then((r) => r.text().then((b) => ({ s: r.status, ms: ms(), body: short(b, 90) }), () => ({ s: r.status, ms: ms() })))
         .catch((e) => ({ err: short((e && e.name ? e.name + ': ' : '') + (e && e.message), 80), ms: ms() }))
@@ -3831,7 +3856,7 @@
     try { await diagnosticsRun(); } finally { diagBusy = false; }
   }
   async function diagnosticsRun() {
-    toast('Preparando el diagnóstico… (unos segundos)');
+    const wait = toast('Preparando el diagnóstico… (puede tardar hasta 20 s)', '', null, 24000);
     const netP = probeNet().catch((e) => ({ err: String(e) }));
     const t = deck[activeIdx] || tracks[0];
     const avg = (x) => (x.n ? Math.round(x.ms / x.n) : null);
@@ -3881,18 +3906,34 @@
     if (t) {
       const fb = origFav(t);
       out.favBtn = fb ? short(fb.outerHTML, 200) : null;
-      if (!metaCache[t.id] && t.trackUrl) try {
+      if (t.trackUrl) try {
+        // la ficha tal como la da Soundeo (filas de su tabla) y lo que la app lee de ella
         const r = await fetch(t.trackUrl, { credentials: 'include' });
         const html = await r.text();
         out.trackStatus = r.status;
         const doc = new DOMParser().parseFromString(html, 'text/html');
         const scope = stripChrome(doc);
-        const src = scope ? scope.innerHTML.replace(/\s+/g, ' ') : '';
-        const k = src.search(/bpm/i);
-        out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 400), k + 400) : src.slice(0, 800);
+        out.trackRows = scope ? $$('tr', scope).slice(0, 14).map((tr) => Array.from(tr.children).slice(0, 2).map((c) => short(c.textContent, 50))) : null;
+        const pm = parseTrackPage(html, t);
+        out.trackParsed = pm ? { b: pm.b, k: pm.k } : null;
+        if (!out.trackRows || !out.trackRows.length) {
+          const src = scope ? scope.innerHTML.replace(/\s+/g, ' ') : '';
+          const k = src.search(/bpm/i);
+          out.trackBpmSnippet = k >= 0 ? src.slice(Math.max(0, k - 400), k + 400) : src.slice(0, 800);
+        }
       } catch (e) { out.trackErr = String(e); }
     }
+    // ¿algún BPM de los que se enseñan se sale del filtro de la lista? (Soundeo ya la filtra: no debería)
+    const bf = cur && !cur.loose && cur.filters;
+    if (bf && (bf.bpmMin != null || bf.bpmMax != null)) {
+      const lo = bf.bpmMin != null ? bf.bpmMin : 0;
+      const hi = bf.bpmMax != null ? bf.bpmMax : 999;
+      const known = tracks.filter((x) => metaCache[x.id] && metaCache[x.id].b);
+      const bad = known.filter((x) => metaCache[x.id].b < lo - 1 || metaCache[x.id].b > hi + 1);
+      out.bpmCheck = { filter: lo + '-' + hi, known: known.length, out: bad.length, samples: bad.slice(0, 5).map((x) => ({ id: x.id, b: metaCache[x.id].b, label: short(x.label, 30), artist: short(x.artist, 30) })) };
+    }
     out.net = await netP;
+    if (wait) wait.remove();
     // enlaces de prueba: ¿abre el iPhone la app de cada servicio con la canción buscada?
     const song = current || t;
     const q = song ? clean((song.artist || '') + ' ' + song.name) : 'Daft Punk Around the World';
@@ -3911,13 +3952,14 @@
   }
 
   /* ───────────── toasts y contadores ───────────── */
-  function toast(msg, actionLabel, fn) {
-    if (!toastsEl || !isOpen) return;
+  function toast(msg, actionLabel, fn, ms) {
+    if (!toastsEl || !isOpen) return null;
     const t = el(`<div class="toast"><span>${esc(msg)}</span>${actionLabel ? '<button>' + esc(actionLabel) + '</button>' : ''}</div>`);
     if (actionLabel) $('button', t).addEventListener('click', () => { t.remove(); fn && fn(); });
     toastsEl.appendChild(t);
     while (toastsEl.children.length > 3) toastsEl.firstElementChild.remove();
-    setTimeout(() => t.remove(), actionLabel ? 6000 : 2600);
+    setTimeout(() => t.remove(), ms || (actionLabel ? 6000 : 2600));
+    return t;
   }
   function updateCounters() {
     if (!root) return;
