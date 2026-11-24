@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -59,10 +59,46 @@
     startSection: 'avail',
     immersive: false,
     ui2: false, // diseño nuevo (2.0): pestañas abajo; apagado hasta que se pruebe en el iPhone
+    // 2.1 (se cambian en las pantallas de Ajustes del diseño nuevo; los valores de siempre son los de aquí)
+    skipBack: 15, // segundos del botón de salto atrás
+    skipFwd: 30, // y del de salto adelante
+    keyFmt: 'both', // tono: 'both' («8A Amin»), 'cam' («8A») o 'mus' («Amin»)
+    dense: false, // lista compacta
+    bigText: false, // letra grande
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
   const savePrefs = () => LS.set('prefs', prefs);
+  const clampInt = (v, lo, hi, def) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
+  // Los ajustes de la 2.1 solo cuentan con el diseño nuevo, que es donde se cambian: al apagarlo, todo vuelve a como era.
+  const pref2 = (k) => (prefs.ui2 ? prefs[k] : DEFAULT_PREFS[k]);
+  const skipBack = () => clampInt(pref2('skipBack'), 1, 99, 15);
+  const skipFwd = () => clampInt(pref2('skipFwd'), 1, 99, 30);
+  // 2.1: combinaciones de filtros guardadas (máximo 5). Cada una lleva solo lo que es «filtro» (géneros, BPM, fecha,
+  // tono y tipo de track): ni la sección ni la búsqueda por título.
+  const MAX_SAVED = 5;
+  const comboOf = (f) => ({
+    genres: ((f && f.genres) || []).map(String), bpmMin: !f || f.bpmMin == null ? null : +f.bpmMin, bpmMax: !f || f.bpmMax == null ? null : +f.bpmMax,
+    time: String((f && f.time) || '0'), keys: ((f && f.keys) || []).slice(), trackType: String((f && f.trackType) || '0'),
+  });
+  const comboKey = (f) => { const c = comboOf(f); c.genres.sort(); c.keys.sort(); return JSON.stringify(c); };
+  let savedFilters = (() => {
+    const v = LS.get('savedFilters', []);
+    return (Array.isArray(v) ? v : []).filter((x) => x && typeof x.name === 'string' && x.f).slice(0, MAX_SAVED).map((x, k) => ({ id: String(x.id || k), name: x.name, f: comboOf(x.f) }));
+  })();
+  const saveSaved = () => LS.set('savedFilters', savedFilters);
+  // BPM mínimo y máximo en su orden (se pueden escribir al revés); dice si los ha cambiado.
+  const orderBpm = (f) => {
+    if (!f || f.bpmMin == null || f.bpmMax == null || +f.bpmMin <= +f.bpmMax) return false;
+    const t = f.bpmMin; f.bpmMin = f.bpmMax; f.bpmMax = t;
+    return true;
+  };
+  function setStartFilters(f) {
+    const c = comboOf(f);
+    orderBpm(c);
+    defFilters = Object.assign({}, DEFAULT_FILTERS, c, { search: '' });
+    LS.set('filters', defFilters);
+  }
   // antes "incluir no disponibles" era un filtro; ahora es la sección «Todos los tracks»
   if (!LS.get('prefs', {}).startSection && String(defFilters.available) === '0') prefs.startSection = 'all';
 
@@ -83,6 +119,9 @@
     ['86', 'UK Garage / Bassline'],
   ];
   const TIME_OPTS = [['0', 'Todo'], ['3', '3 días'], ['7', '1 semana'], ['30', '1 mes'], ['90', '3 meses'], ['365', '1 año']];
+  // Tipo de track: los tres valores del filtro de la web de Soundeo (All tracks / Exclude Stems / Stems)
+  const TYPE_OPTS = [['0', 'Todos'], ['2', 'Sin stems'], ['1', 'Solo stems']];
+  const typeName = (v) => { const t = TYPE_OPTS.find((x) => x[0] === String(v || '0')); return t ? t[1] : 'Todos'; };
 
   function genreOptions() {
     const sel = $('select[name="genreFilter"]');
@@ -128,6 +167,14 @@
     return n + (k.minor ? 'A' : 'B');
   }
   const camSort = (c) => (parseInt(c, 10) || 99) * 2 + (/B$/.test(c) ? 1 : 0);
+  // 2.1: cómo se enseña el tono (ajuste «keyFmt»): los dos («8A Amin», lo de siempre), solo Camelot o solo musical.
+  function keyText(k) {
+    const c = camelot(k);
+    const kf = pref2('keyFmt');
+    if (kf === 'cam') return c || k;
+    if (kf === 'mus') return k;
+    return (c ? c + ' ' : '') + k;
+  }
 
   /* ───────────────────────── URL / filtros ───────────────────────── */
   function filtersFromUrl(href) {
@@ -249,6 +296,7 @@
     const t = TIME_OPTS.find((x) => x[0] === String(f.time));
     if (t && t[0] !== '0') parts.push(t[1]);
     if (f.keys && f.keys.length) parts.push(f.keys.length + (f.keys.length === 1 ? ' tono' : ' tonos'));
+    if (f.trackType && String(f.trackType) !== '0') parts.push(typeName(f.trackType));
     if (f.search) parts.push('“' + f.search + '”');
     return parts.join(' · ');
   }
@@ -705,6 +753,8 @@
     heart: '<svg viewBox="0 0 24 24"><path d="M12 20.2C7.3 16.5 4 13.6 4 9.9c0-2.5 1.9-4.4 4.3-4.4 1.5 0 2.8.7 3.7 1.9.9-1.2 2.2-1.9 3.7-1.9 2.4 0 4.3 1.9 4.3 4.4 0 3.7-3.3 6.6-8 10.3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>',
     heartOn: '<svg viewBox="0 0 24 24"><path d="M12 20.2C7.3 16.5 4 13.6 4 9.9c0-2.5 1.9-4.4 4.3-4.4 1.5 0 2.8.7 3.7 1.9.9-1.2 2.2-1.9 3.7-1.9 2.4 0 4.3 1.9 4.3 4.4 0 3.7-3.3 6.6-8 10.3z" fill="currentColor" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>',
     feed: '<svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 9.6v4.8l4-2.4z" fill="currentColor"/></svg>',
+    eye: '<svg viewBox="0 0 24 24"><path d="M2.8 12c2.3-4 5.5-6 9.2-6s6.9 2 9.2 6c-2.3 4-5.5 6-9.2 6s-6.9-2-9.2-6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>',
+    plus: '<svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   };
 
   /* ───────────────────────── estilos ───────────────────────── */
@@ -1015,7 +1065,74 @@
   .srcp{display:none;align-items:center;gap:5px;height:38px;min-width:0;flex:0 1 auto;padding:0 11px 0 14px;border-radius:999px;background:var(--glass);font-size:14px;font-weight:700;}
   .srcp span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .srcp i{width:15px;height:15px;display:block;flex:none;transform:rotate(-90deg);}
+  /* 2.1 · con el diseño nuevo, Ajustes es una pantalla por capas (.pg) y los resultados de Buscar llevan arriba el
+     campo con lo buscado (.sqb). El mini reproductor se sigue viendo encima de las dos. */
+  .pg{position:absolute;inset:0;z-index:45;background:var(--bg);display:none;flex-direction:column;padding-bottom:var(--sb);}
+  .pg.on{display:flex;}
+  .pgh{flex:none;display:flex;align-items:center;gap:8px;min-height:calc(var(--st) + 56px);padding:calc(var(--st) + 8px) calc(var(--sr) + 12px) 8px calc(var(--sl) + 16px);}
+  .pgh h2{flex:1;min-width:0;margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pg.sub .pgh{padding-left:calc(var(--sl) + 12px);}
+  .pg.sub .pgh h2{font-size:19px;}
+  .pgback{display:none;flex:none;}
+  .pg.sub .pgback{display:grid;}
+  .pgx{flex:none;}
+  .pgb{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0 calc(var(--sr) + 16px) 22px calc(var(--sl) + 16px);}
+  .pgb>.sec:first-child{margin-top:6px;}
+  .pgf{flex:none;display:flex;gap:9px;padding:10px calc(var(--sr) + 16px) 10px calc(var(--sl) + 16px);border-top:1px solid var(--line);}
+  .pgf:empty{display:none;}
+  .pgf .btn{flex:1;}
+  .prow .ol>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .prow .ol em{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;}
+  .opt.prow small{flex:none;margin-left:0;}
+  .pch{display:block;width:16px;height:16px;flex:none;color:var(--dim);transform:rotate(180deg);}
+  .svrow{display:flex;align-items:center;border-bottom:1px solid var(--line);}
+  .svrow .opt{border-bottom:0;flex:1;min-width:0;}
+  .svrow .opt small{color:var(--acc);flex:none;}
+  .svrow .rb{width:44px;height:48px;}
+  .svn{float:right;letter-spacing:0;text-transform:none;font-weight:600;}
+  .skr{flex-wrap:wrap;}
+  .skr input{width:76px;}
+  .skr .presets{margin-top:0;}
+  .sqb{display:none;flex:1 1 auto;min-width:0;height:38px;align-items:center;gap:8px;padding:0 12px;border-radius:12px;background:var(--glass);font-size:15px;font-weight:600;text-align:left;}
+  .sqb i{width:18px;height:18px;display:block;flex:none;color:var(--mut);}
+  .sqb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .srt{display:none;margin:0 0 8px 4px;height:40px;line-height:40px;font-size:24px;font-weight:800;letter-spacing:-.01em;}
+  /* 2.1 · lista compacta y letra grande (Ajustes → Apariencia) */
+  .root.dense .row{padding:5px 8px 5px 14px;gap:10px;}
+  .root.dense .row .rc{width:40px;height:40px;border-radius:6px;}
+  .root.dense .rt{font-size:14.5px;line-height:1.22;}
+  .root.dense .rt small{font-size:12.5px;}
+  .root.dense .ra{font-size:13px;line-height:1.22;margin-top:0;}
+  .root.dense .rx{font-size:11.5px;line-height:1.22;margin-top:1px;}
+  .root.dense .rb{width:36px;height:40px;}
+  .root.dense .gh{padding:7px 14px 5px;}
+  .root.bigtx .rt{font-size:17.5px;}
+  .root.bigtx .rt small{font-size:15px;}
+  .root.bigtx .ra{font-size:16px;}
+  .root.bigtx .rx{font-size:14px;}
+  .root.bigtx .mini .mt{font-size:16px;}
+  .root.bigtx .mini .ma{font-size:14px;}
+  .root.bigtx.dense .rt{font-size:16px;}
+  .root.bigtx.dense .rt small{font-size:14px;}
+  .root.bigtx.dense .ra{font-size:14.5px;}
+  .root.bigtx.dense .rx{font-size:13px;}
   @media (orientation:portrait),(min-height:501px){
+    /* en el feed la letra grande crece un 10 % como mucho (en horizontal no: no hay alto) */
+    .root.bigtx .ttl{font-size:27.5px;}
+    .root.bigtx .mix{font-size:16.5px;}
+    .root.bigtx .art{font-size:18.5px;}
+    .root.bigtx .rel{font-size:14.5px;}
+    .root.bigtx .eyebrow{font-size:12.5px;}
+    .root.bigtx .chips .chip{font-size:13.5px;}
+    .root.ui2 .pgx{display:none;}
+    .root.ui2 .srt{display:block;}
+    .root.ui2 .app:not(.is-search) .sback{display:none;}
+    .root.ui2 .app.is-search[data-view=list] .sqb{display:flex;}
+    .root.ui2 .app.is-search[data-view=list] .srcp,.root.ui2 .app.is-search[data-view=list] .bnav,.root.ui2 .app.is-search[data-view=list] .tb-sp{display:none;}
+    .root.ui2 .app.is-search .fsq,.root.ui2 .app.is-search .list .skind,.root.ui2 .app.is-search .list .stitle{display:none;}
+    .root.ui2 .app.over.has-cur .mini{display:flex;z-index:47;}
+    .root.ui2 .app.has-cur .pg{padding-bottom:calc(var(--sb) + 112px);}
+    .root.ui2 .app.has-cur .srch{padding-bottom:calc(var(--sb0) + 56px + 104px);}
     .root.ui2{--tb:56px;}
     .root.ui2 .tabs{display:flex;}
     .root.ui2 .seg,.root.ui2 .bsearch,.root.ui2 .bset{display:none;}
@@ -1084,7 +1201,15 @@
   let wantPlay = false;
   let view = 'feed';
   let isOpen = false;
-  let host, root, app, feedEl, listEl, ctrlEl, miniEl, toastsEl, shadeEl, ctxEl, srchEl;
+  let host, root, app, feedEl, listEl, ctrlEl, miniEl, toastsEl, shadeEl, ctxEl, srchEl, pgEl;
+  // 2.1 (diseño nuevo): capas de la pantalla de Ajustes, la última búsqueda y el paso atrás pedido con ‹
+  let pgStack = []; // [{ id, arg }]; la primera capa no ocupa historial (es una pestaña), las demás sí
+  let fdraft = null; // filtros que se están tocando en Ajustes: { mode: 'start' | 'cur', f, src }
+  let searchKeep = null; // la última búsqueda hecha: la pestaña Buscar vuelve a ella sin pedirla otra vez
+  let backWant = null; // hasta qué profundidad tiene que bajar el paso atrás que ha pedido el botón ‹
+  const pgOn = () => pgStack.length > 0;
+  const overOn = () => pgOn() || !!(srchEl && srchEl.classList.contains('on'));
+  const paintOver = () => { if (app) app.classList.toggle('over', overOn()); };
 
   const vpMeta = (() => {
     let m = $('meta[name="viewport"]');
@@ -1132,6 +1257,7 @@
           <div class="topbar">
             <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
             <button class="srcp" aria-label="Elegir lista"><span></span>${i('chev')}</button>
+            <button class="sqb" aria-label="Cambiar la búsqueda">${i('search')}<span></span></button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
             <button class="pill dlleft" title="Likes y descargas que te quedan hoy"><span class="vl">${i('heart')}<b>–</b></span>${i('dl')}<span class="dlc">–</span></button>
@@ -1142,11 +1268,11 @@
           <div class="controls">
             <div class="prog"><span class="tc">0:00</span><div class="bar"><div class="buf"></div><div class="fill"></div><div class="knob"></div></div><span class="td">0:00</span></div>
             <div class="btns">
-              <button class="cb sm b15" aria-label="Atrás 15 s">${i('back')}<em>15</em></button>
+              <button class="cb sm b15" aria-label="Atrás ${skipBack()} s">${i('back')}<em>${skipBack()}</em></button>
               <button class="cb bprev" aria-label="Anterior">${i('prev')}</button>
               <button class="cb big bplay" aria-label="Reproducir">${i('play')}</button>
               <button class="cb bnext" aria-label="Siguiente">${i('next')}</button>
-              <button class="cb sm f30" aria-label="Adelante 30 s">${i('fwd')}<em>30</em></button>
+              <button class="cb sm f30" aria-label="Adelante ${skipFwd()} s">${i('fwd')}<em>${skipFwd()}</em></button>
             </div>
           </div>
           <div class="mini">
@@ -1166,12 +1292,18 @@
             <button data-t="settings">${i('sliders')}<span>Ajustes</span></button>
           </div>
           <div class="srch">
+            <h2 class="srt">Buscar</h2>
             <form class="srow" action="#">
               <button type="button" class="ibtn sback" aria-label="Cerrar">${i('chev')}</button>
               <input class="sq" type="search" enterkeyhint="search" placeholder="Artista, título o sello" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
               <button type="submit" class="btn pri sgo">Buscar</button>
             </form>
             <div class="sbody"></div>
+          </div>
+          <div class="pg">
+            <div class="pgh"><button class="ibtn pgback" aria-label="Atrás">${i('chev')}</button><h2></h2><button class="ibtn pgx" aria-label="Cerrar">${i('close')}</button></div>
+            <div class="pgb"></div>
+            <div class="pgf"></div>
           </div>
           <div class="toasts"></div>
           <div class="sap"></div>
@@ -1191,13 +1323,19 @@
     shadeEl = $('.shade', sr);
     ctxEl = $('.ctx', sr);
     srchEl = $('.srch', sr);
+    pgEl = $('.pg', sr);
 
     // eventos fijos
     $$('.seg button', sr).forEach((b) => b.addEventListener('click', () => setView(b.dataset.v)));
     $('.bnav', sr).addEventListener('click', () => (stack.length > 1 ? goBack() : openMenu()));
     $('.bsearch', sr).addEventListener('click', () => openSearch());
-    $('.bset', sr).addEventListener('click', () => openSettings());
+    $('.bset', sr).addEventListener('click', () => settingsGo());
     $('.srcp', sr).addEventListener('click', () => openMenu());
+    $('.sqb', sr).addEventListener('click', () => openSearch(cur && cur.kind === 'search' ? cur.query : ''));
+    $('.pgback', sr).addEventListener('click', pgBack);
+    $('.pgx', sr).addEventListener('click', pgClose);
+    root.classList.toggle('dense', !!pref2('dense'));
+    root.classList.toggle('bigtx', !!pref2('bigText'));
     $$('.tabs button', sr).forEach((b) => b.addEventListener('click', () => tabGo(b.dataset.t)));
     root.classList.toggle('ui2', !!prefs.ui2);
     $('.dlleft', sr).addEventListener('click', () => toast(dlLeftText()));
@@ -1205,8 +1343,8 @@
     $('.bplay', sr).addEventListener('click', togglePlay);
     $('.bnext', sr).addEventListener('click', () => step(1, true));
     $('.bprev', sr).addEventListener('click', () => step(-1, true));
-    $('.b15', sr).addEventListener('click', () => seekBy(-15));
-    $('.f30', sr).addEventListener('click', () => seekBy(30));
+    $('.b15', sr).addEventListener('click', () => seekBy(-skipBack()));
+    $('.f30', sr).addEventListener('click', () => seekBy(skipFwd()));
     $('.mplay', sr).addEventListener('click', togglePlay);
     $('.mnext', sr).addEventListener('click', () => step(1, true));
     $('.mexp', sr).addEventListener('click', showCurrentInFeed);
@@ -1264,7 +1402,17 @@
     document.addEventListener('visibilitychange', retryStale);
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
-      const d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
+      const want = backWant;
+      backWant = null;
+      // capas de Ajustes: un paso atrás (‹ o el gesto de Safari) quita al menos una capa
+      if (pgStack.length > 1) {
+        const p = e.state && typeof e.state.pg === 'number' ? e.state.pg : 0;
+        pgPop(Math.max(0, Math.min(pgStack.length - 2, p)));
+        return;
+      }
+      let d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
+      // con ‹ siempre se baja un nivel, aunque el paso del historial caiga en una entrada de la misma profundidad
+      if (want != null) d = Math.min(d, want);
       if (d < stack.length - 1) popTo(d);
     });
   }
@@ -1431,17 +1579,21 @@
     SS.set('view', view);
     paintTabs();
   }
-  // Diseño nuevo (2.0): la barra de pestañas. Buscar y Ajustes abren de momento lo de siempre.
+  // Diseño nuevo: la barra de pestañas. Desde la 2.1, Buscar y Ajustes son pantallas propias.
   function tabGo(t) {
     if (t === 'feed' || t === 'list') {
       closeSheets();
       closeSearch();
-      if (view !== t) setView(t);
+      pgClose();
+      // «Lista» nunca enseña una búsqueda (eso es la pestaña Buscar): se vuelve a la lista de debajo
+      if (t === 'list' && cur && cur.kind === 'search') leaveSearch();
+      else if (view !== t) setView(t);
     } else if (t === 'search') {
-      if (srchEl.classList.contains('on')) { try { $('.sq', srchEl).focus(); } catch (e) {} } else openSearch();
+      closeSheets();
+      pgClose();
+      searchTab();
     } else if (t === 'settings') {
-      closeSearch();
-      openSettings();
+      settingsGo();
     } else if (t === 'chat') {
       toast('El chat llega en una próxima versión');
     }
@@ -1450,15 +1602,56 @@
   function paintTabs() {
     if (!root) return;
     const st = $('.s-settings', root);
-    const on = st && st.classList.contains('on') ? 'settings' : srchEl && srchEl.classList.contains('on') ? 'search' : view;
+    const on = pgOn() || (st && st.classList.contains('on')) ? 'settings'
+      : srchEl && srchEl.classList.contains('on') ? 'search'
+        : cur && cur.kind === 'search' && view === 'list' ? 'search' : view;
     $$('.tabs button', root).forEach((b) => b.classList.toggle('on', b.dataset.t === on));
   }
   function applyUi() {
     if (!root) return;
     root.classList.toggle('ui2', !!prefs.ui2);
+    if (!prefs.ui2) pgClose();
     paintChrome();
     paintTabs();
-    requestAnimationFrame(() => { layoutCards(); if (view === 'feed') feedJump(activeIdx); });
+    // saltos, tono, lista compacta y letra grande van con el diseño nuevo: se ponen o se quitan con él
+    paintSkips();
+    applyLook();
+  }
+  // Ajustes: con el diseño nuevo, la pantalla por capas; con el de siempre, la hoja de siempre.
+  function settingsGo() {
+    closeSearch();
+    closeSheets();
+    if (prefs.ui2) pgOpen('settings', null, { root: true });
+    else openSettings();
+  }
+  // Filtros de la lista que se ve (el resumen de arriba de la lista): segunda capa de Ajustes, para que ‹ vuelva a Ajustes.
+  function filtersGo() {
+    if (!prefs.ui2) { openSettings(); return; }
+    pgOpen('settings', null, { root: true });
+    pgOpen('filters', 'cur');
+  }
+  // Pestaña Buscar: sin búsqueda hecha, el buscador; con ella, sus resultados (se conservan al pasar por otras pestañas).
+  function searchTab() {
+    if (srchEl.classList.contains('on')) { try { $('.sq', srchEl).focus(); } catch (e) {} return; }
+    if (cur && cur.kind === 'search') {
+      if (view !== 'list') setView('list');
+      else openSearch(cur.query);
+      return;
+    }
+    const s = searchKeep;
+    if (!s || s.error) { openSearch(); return; }
+    s.view = 'list';
+    const d = stack.indexOf(s);
+    if (d >= 0) popTo(d); // sigue en el camino de vuelta (se entró en un artista desde los resultados)
+    else openSource(s, { view: 'list', src: s });
+  }
+  // Salir de la búsqueda a la lista que hay debajo (o, si la página arrancó en una búsqueda, a la de inicio).
+  function leaveSearch() {
+    let d = stack.length - 1;
+    while (d >= 0 && stack[d].kind === 'search') d--;
+    if (d < 0) { openSource(sectionDesc(prefs.startSection || 'avail'), { root: true, view: 'list' }); return; }
+    stack[d].view = 'list';
+    popTo(d);
   }
   function setView(v) {
     // si sales del feed a mitad de un deslizamiento, la tarjeta a la que ibas ya cuenta
@@ -1500,6 +1693,9 @@
   }
   // Desde el mini reproductor: enseñar en el feed lo que está sonando.
   function showCurrentInFeed() {
+    // desde el mini reproductor que se ve encima de Ajustes o del buscador (diseño nuevo): se sale de ahí
+    pgClose();
+    closeSearch();
     if (!current) { setView('feed'); return; }
     if (byId.has(current.id)) {
       if (!deckPos.has(current.id)) { forced.add(current.id); buildDeck(); renderFeed(); }
@@ -1673,6 +1869,7 @@
   // Pone una fuente en pantalla (feed + lista).
   function adopt(s) {
     cur = s;
+    if (s.kind === 'search') searchKeep = s;
     tracks = s.tracks;
     hiddenAtLoad = s.hidden;
     forced = s.forced;
@@ -1713,12 +1910,16 @@
     nav.innerHTML = i(deep ? 'chev' : 'menu');
     nav.setAttribute('aria-label', deep ? 'Atrás' : 'Secciones');
     app.classList.toggle('deep', deep);
+    // diseño nuevo: en los resultados de una búsqueda, arriba va el campo con lo buscado (pestaña Buscar)
+    app.classList.toggle('is-search', !!cur && cur.kind === 'search');
+    $('.sqb span', root).textContent = cur && cur.kind === 'search' ? cur.query || cur.title : '';
     $('.srcp span', root).textContent = cur ? (kindName(cur) ? kindName(cur) + ' · ' : '') + cur.title : 'Soundeo';
     // en el feed, una etiqueta con dónde estás (salvo en la sección de siempre)
     const show = !!cur && (deep || cur.key !== startListKey() || cur.kind !== 'section');
     app.classList.toggle('has-ctx', show);
     $('.ct', ctxEl).textContent = cur ? (kindName(cur) ? kindName(cur) + ' · ' : '') + cur.title : '';
     $('.cs', ctxEl).textContent = '';
+    paintTabs(); // la pestaña marcada depende de si lo que se ve es una búsqueda
   }
   const kindName = (s) => ({ artist: 'Artista', label: 'Sello', release: 'Release', search: 'Búsqueda', genre: 'Género', similar: 'También descargan' }[s.kind] || '');
   const sameUrl = (a, b) => { try { const x = new URL(a, location.href); const y = new URL(b, location.href); return x.pathname === y.pathname && normFilters(filtersFromUrl(x.href)) === normFilters(filtersFromUrl(y.href)) && (x.searchParams.get('q') || '') === (y.searchParams.get('q') || '') && (x.searchParams.get('page') || '1') === (y.searchParams.get('page') || '1'); } catch (e) { return false; } };
@@ -1726,6 +1927,7 @@
     opts = opts || {};
     closeSheets();
     closeSearch();
+    pgClose();
     if (cur && !opts.root && !opts.replace && cur.url && sameUrl(cur.url, d.url)) {
       if (opts.view && opts.view !== view) setView(opts.view);
       return cur;
@@ -1734,7 +1936,8 @@
     stash();
     // la lista con la que arrancó la página (o la de lo que está sonando) ya está cargada: no hace falta pedirla otra vez
     const known = opts.root ? [liveSrc, queue && queue.stack.length === 1 ? queue.src : null].find((x) => x && x.loaded && !x.error && x.kind === d.kind && sameUrl(x.url, d.url)) : null;
-    let s = known || mkSrc(d);
+    // `opts.src`: una fuente que ya se tenía (la última búsqueda), tal como se dejó
+    let s = opts.src || known || mkSrc(d);
     if (opts.root) stack = [s];
     else if (opts.replace) stack[stack.length - 1] = s;
     else {
@@ -1749,7 +1952,13 @@
   function goBack() {
     if (stack.length <= 1) return;
     try {
-      if (history.state && history.state.sx === stack.length - 1) { history.back(); return; }
+      if (history.state && history.state.sx === stack.length - 1) {
+        const want = stack.length - 2;
+        backWant = want;
+        setTimeout(() => { if (backWant === want) backWant = null; }, 1500);
+        history.back();
+        return;
+      }
     } catch (e) {}
     popTo(stack.length - 2);
   }
@@ -1757,6 +1966,7 @@
     if (depth < 0 || depth >= stack.length - 1) return;
     closeSheets();
     closeSearch();
+    pgClose();
     keepQueue();
     stash();
     stack.length = depth + 1;
@@ -1929,7 +2139,9 @@
   /* ───────────── buscador ───────────── */
   function openSearch(prefill) {
     closeSheets();
+    pgClose();
     srchEl.classList.add('on');
+    paintOver();
     paintTabs();
     const inp = $('.sq', srchEl);
     inp.value = typeof prefill === 'string' ? prefill : cur && cur.kind === 'search' ? cur.query : '';
@@ -1939,7 +2151,9 @@
   function closeSearch() {
     if (!srchEl || !srchEl.classList.contains('on')) return;
     srchEl.classList.remove('on');
+    paintOver();
     paintTabs();
+    paintProgress();
     try { $('.sq', srchEl).blur(); } catch (e) {}
   }
   function paintRecent() {
@@ -2210,7 +2424,12 @@
     return '';
   }
   function metaChipKey(m) {
-    return m && m.k ? '<b>' + esc(camelot(m.k)) + '</b>' + esc(m.k) : '';
+    if (!m || !m.k) return '';
+    const c = camelot(m.k);
+    const kf = pref2('keyFmt');
+    if (kf === 'cam' && c) return '<b>' + esc(c) + '</b>';
+    if (kf === 'mus') return esc(m.k);
+    return '<b>' + esc(c) + '</b>' + esc(m.k);
   }
   function metaChipBpm(m) {
     return m && m.b ? esc(m.b) + ' BPM' : '';
@@ -2580,7 +2799,7 @@
     const bits = [];
     if (t.rank) bits.push('#' + t.rank);
     if (m && m.b) bits.push(m.b + ' BPM');
-    if (m && m.k) bits.push(camelot(m.k) + ' ' + m.k);
+    if (m && m.k) bits.push(keyText(m.k));
     bits.push(t.genre, t.label, t.duration);
     return bits.filter(Boolean).join(' · ');
   }
@@ -2640,7 +2859,7 @@
     const head = el('<div class="lhead"></div>');
     if (s.canFilter) {
       const b = el(`<button class="fsum">${i('sliders')}<span><b>${esc(s.title)}</b><small>${esc(describeFilters(s.filters))}${s.cut ? ' · género filtrado aquí' : ''}</small></span></button>`);
-      b.addEventListener('click', () => openSettings());
+      b.addEventListener('click', () => filtersGo());
       head.appendChild(b);
       return head;
     }
@@ -2666,7 +2885,7 @@
       if (chips.children.length) head.appendChild(chips);
     }
     if (s.kind === 'search') {
-      const b = el(`<button class="fsum" style="margin-top:10px">${i('search')}<span><b>Cambiar la búsqueda</b></span></button>`);
+      const b = el(`<button class="fsum fsq" style="margin-top:10px">${i('search')}<span><b>Cambiar la búsqueda</b></span></button>`);
       b.addEventListener('click', () => openSearch(s.query));
       head.appendChild(b);
     }
@@ -3096,13 +3315,17 @@
     const d = audio.duration;
     const c = seekTarget != null ? seekTarget : audio.currentTime;
     const pct = isFinite(d) && d > 0 ? (c / d) * 100 : 0;
-    // en el feed, la barra de los controles; en la lista, la del mini reproductor
-    const p = view === 'feed' ? progEls.feed : progEls.mini;
-    p.fill.style.width = pct + '%';
-    p.knob.style.left = pct + '%';
-    p.tc.textContent = fmtTime(c);
-    p.td.textContent = isFinite(d) ? fmtTime(d) : '0:00';
-    p.buf.style.width = (isFinite(d) && d > 0 ? Math.min(100, (bufSecs(audio) / d) * 100) : 0) + '%';
+    // en el feed, la barra de los controles; en la lista, la del mini reproductor (que también se ve encima de
+    // Ajustes y del buscador con el diseño nuevo, aunque debajo esté el feed)
+    const paint = (p) => {
+      p.fill.style.width = pct + '%';
+      p.knob.style.left = pct + '%';
+      p.tc.textContent = fmtTime(c);
+      p.td.textContent = isFinite(d) ? fmtTime(d) : '0:00';
+      p.buf.style.width = (isFinite(d) && d > 0 ? Math.min(100, (bufSecs(audio) / d) * 100) : 0) + '%';
+    };
+    paint(view === 'feed' ? progEls.feed : progEls.mini);
+    if (view === 'feed' && overOn()) paint(progEls.mini);
   }
   function setupBar(bar) {
     let dragging = false;
@@ -3200,8 +3423,8 @@
     h('pause', () => { wantPlay = false; audio.pause(); });
     h('nexttrack', () => step(1, false));
     h('previoustrack', () => step(-1, false));
-    h('seekbackward', () => seekBy(-15));
-    h('seekforward', () => seekBy(30));
+    h('seekbackward', () => seekBy(-skipBack()));
+    h('seekforward', () => seekBy(skipFwd()));
     h('seekto', (d) => { if (d && d.seekTime != null) seekTo(d.seekTime); });
   }
 
@@ -3724,7 +3947,440 @@
   const songQuery = (t) => clean((t.artist || '') + ' ' + t.name);
   const musicLinksHtml = (t) => MUSIC.map((m) => `<a class="mlink ${m.key}" target="_blank" rel="noopener" draggable="false" href="${esc(m.url(songQuery(t)))}" aria-label="Buscar en ${m.name}"><span class="mn">${m.lines.map(esc).join('<br>')}</span><i class="mgo">${ICON.go}</i></a>`).join('');
 
+  /* ───────────── Ajustes por capas (2.1, solo con el diseño nuevo) ───────────── */
+  // Con el diseño nuevo, Ajustes es una pantalla propia: cada fila entra en la suya y enseña el valor actual sin
+  // entrar; ‹ (o el gesto «atrás» de Safari) vuelve una capa. El diseño de siempre sigue con su hoja (openSettings).
+  function pgOpen(id, arg, opts) {
+    if (!pgEl) return;
+    closeSheets();
+    closeSearch();
+    if (opts && opts.root) pgStack = [{ id, arg, scroll: 0 }];
+    else {
+      if (pgStack.length) pgStack[pgStack.length - 1].scroll = $('.pgb', pgEl).scrollTop;
+      pgStack.push({ id, arg, scroll: 0 });
+      try { history.pushState({ sx: stack.length - 1, pg: pgStack.length - 1 }, '', location.href); } catch (e) {}
+    }
+    pgRender();
+  }
+  function pgPop(to) {
+    if (to < 0) { pgClose(); return; }
+    if (to >= pgStack.length - 1) return;
+    pgStack.length = to + 1;
+    pgRender();
+  }
+  function pgBack() {
+    if (pgStack.length <= 1) { pgClose(); return; }
+    try {
+      if (history.state && history.state.pg === pgStack.length - 1) { history.back(); return; }
+    } catch (e) {}
+    pgPop(pgStack.length - 2);
+  }
+  function pgClose() {
+    if (!pgStack.length) return;
+    pgStack = [];
+    fdraft = null;
+    if (!pgEl) return;
+    try { const a = pgEl.getRootNode().activeElement; if (a && pgEl.contains(a)) a.blur(); } catch (e) {}
+    pgEl.classList.remove('on');
+    paintOver();
+    paintTabs();
+    paintProgress();
+  }
+  // `keep`: se repinta la misma pantalla tras un cambio (no se mueve el scroll); si no, se entra o se vuelve a ella.
+  function pgRender(keep) {
+    const top = pgStack[pgStack.length - 1];
+    if (!top || !pgEl) return;
+    const body = $('.pgb', pgEl);
+    const foot = $('.pgf', pgEl);
+    const y = keep ? body.scrollTop : top.scroll || 0;
+    body.textContent = '';
+    foot.textContent = '';
+    pgEl.dataset.id = top.id;
+    pgEl.classList.toggle('sub', pgStack.length > 1);
+    pgEl.classList.add('on');
+    const title = PAGES[top.id](body, foot, top.arg);
+    if (pgStack[pgStack.length - 1] !== top) return; // la pantalla ha decidido irse (no había nada que enseñar)
+    $('h2', pgEl).textContent = title || '';
+    paintOver();
+    paintTabs();
+    paintProgress();
+    body.scrollTop = y;
+  }
+  // Fila que entra en otra pantalla (o hace algo): título, valor actual debajo y › a la derecha.
+  const pgRow = (o) => {
+    const b = el(`<button class="opt prow"${o.disabled ? ' disabled' : ''}>${o.icon ? i(o.icon) : ''}<span class="ol"><span>${esc(o.label)}</span>${o.val ? '<em>' + esc(o.val) + '</em>' : ''}</span>${o.small ? '<small>' + esc(o.small) + '</small>' : ''}${o.go === false ? '' : '<b class="pch">' + ICON.chev + '</b>'}</button>`);
+    if (o.cls) b.classList.add(o.cls);
+    if (!o.disabled && o.fn) b.addEventListener('click', o.fn);
+    return b;
+  };
+  const pgSeg = (cls, opts, val) => `<div class="seg2 ${cls}">${opts.map(([v, n]) => `<button data-v="${esc(v)}"${String(val) === String(v) ? ' class="on"' : ''}>${esc(n)}</button>`).join('')}</div>`;
+  const wireSeg = (b, cls, fn) => $$('.' + cls + ' button', b).forEach((x) => x.addEventListener('click', () => {
+    $$('.' + cls + ' button', b).forEach((y) => y.classList.toggle('on', y === x));
+    fn(x.dataset.v);
+  }));
+  const tgHtml = (p, title, sub) => `<div class="tg"><div><b>${esc(title)}</b><small>${esc(sub)}</small></div><button class="sw" data-p="${p}" aria-label="${esc(title)}"></button></div>`;
+  const keyFmtName = () => (prefs.keyFmt === 'cam' ? 'Camelot' : prefs.keyFmt === 'mus' ? 'musical' : 'Camelot y musical');
+  const shortList = (n) => (n.length > 3 ? n.slice(0, 3).join(', ') + '…' : n.join(', '));
+  const bpmText = (f) => (f.bpmMin != null || f.bpmMax != null ? (f.bpmMin != null ? f.bpmMin : 0) + ' – ' + (f.bpmMax != null ? f.bpmMax : 260) : 'Cualquiera');
+  const timeName = (v) => { const t = TIME_OPTS.find((x) => x[0] === String(v)); return t ? t[1] : 'Todo'; };
+  // Tono, lista compacta y tamaño de letra: se aplican al momento, sin recargar.
+  function applyLook() {
+    if (!root) return;
+    root.classList.toggle('dense', !!pref2('dense'));
+    root.classList.toggle('bigtx', !!pref2('bigText'));
+    // el tono se escribe al rellenar cada tarjeta y cada fila: repintar lo que hay
+    tracks.forEach((t) => { if (metaCache[t.id]) paintMeta(t); });
+    requestAnimationFrame(() => { layoutCards(); if (view === 'feed') feedJump(activeIdx); });
+  }
+  function paintSkips() {
+    if (!root) return;
+    [['.b15', 'Atrás', skipBack()], ['.f30', 'Adelante', skipFwd()]].forEach(([sel, name, n]) => {
+      const b = $(sel, root);
+      $('em', b).textContent = String(n);
+      b.setAttribute('aria-label', name + ' ' + n + ' s');
+    });
+  }
+
+  /* filtros en las pantallas: `fdraft.f` es lo que se está tocando. Los predeterminados se guardan a cada cambio;
+     los de la lista que se ve se aplican con «Aplicar filtros» (hay que pedir la lista otra vez). */
+  function fTouched() {
+    if (!fdraft) return;
+    fdraft.dirty = true;
+    if (fdraft.mode === 'start') setStartFilters(fdraft.f);
+  }
+  function applyDraft(msg) {
+    const d = fdraft;
+    if (!d || d.mode !== 'cur' || d.src !== cur) { pgClose(); return; }
+    const f = d.f;
+    orderBpm(f);
+    if (f.search && f.search.length < 3) { toast('La búsqueda por título necesita 3 letras o más'); return; }
+    refilter(f);
+    if (typeof msg === 'string') toast(msg);
+  }
+  function useSaved(sv) {
+    if (!fdraft) return;
+    Object.assign(fdraft.f, comboOf(sv.f));
+    if (fdraft.mode === 'start') {
+      fTouched();
+      toast('«' + sv.name + '»: ahora son los filtros predeterminados');
+      pgRender(true);
+      return;
+    }
+    applyDraft('Filtros «' + sv.name + '» aplicados');
+  }
+  function savedMenu(sv) {
+    const now = fdraft ? fdraft.f : null;
+    actionSheet(sv.name, describeFilters(sv.f), '', [
+      { label: 'Renombrar', icon: 'tag', fn: () => pgOpen('f-name', { id: sv.id }) },
+      {
+        label: 'Actualizar con los filtros de ahora', hint: now ? describeFilters(now) : '', icon: 'check', disabled: !now || comboKey(now) === comboKey(sv.f),
+        fn: () => { sv.f = comboOf(fdraft.f); saveSaved(); toast('«' + sv.name + '» actualizado'); pgRender(true); },
+      },
+      { label: 'Borrar', icon: 'close', fn: () => { savedFilters = savedFilters.filter((x) => x !== sv); saveSaved(); toast('«' + sv.name + '» borrado'); pgRender(true); } },
+    ]);
+  }
+  function saveComboGo() {
+    if (!fdraft) return;
+    const dup = savedFilters.find((x) => comboKey(x.f) === comboKey(fdraft.f));
+    if (dup) { toast('Esta combinación ya está guardada como «' + dup.name + '»'); return; }
+    if (savedFilters.length >= MAX_SAVED) { toast('Ya hay ' + MAX_SAVED + ' guardados: borra uno para guardar otro'); return; }
+    pgOpen('f-name', { id: null });
+  }
+  const PAGES = {
+    // primera capa: lo que hay y cómo está, sin entrar
+    settings(b) {
+      fdraft = null;
+      const add = (x) => { const n = typeof x === 'string' ? el(x) : x; b.appendChild(n); return n; };
+      const canF = !!(cur && cur.canFilter);
+      const curVal = canF
+        ? cur.title + ' · ' + (comboKey(cur.filters) === comboKey(defFilters) && !cur.filters.search ? 'sin cambios' : describeFilters(cur.filters))
+        : (cur ? cur.title + ' · ' : '') + 'esta lista no tiene filtros';
+      const acc = clean($('#top-menu-account span') && $('#top-menu-account span').textContent);
+      add('<div class="sec">Listas</div>');
+      add(pgRow({ cls: 'r-fstart', icon: 'sliders', label: 'Filtros predeterminados', val: describeFilters(defFilters), fn: () => pgOpen('filters', 'start') }));
+      add(pgRow({ cls: 'r-fcur', icon: 'rows', label: 'Filtros actuales', val: curVal, disabled: !canF, fn: () => pgOpen('filters', 'cur') }));
+      add(pgRow({ cls: 'r-start', icon: 'feed', label: 'Al abrir', val: sectionByKey(prefs.startSection || 'avail').name + ' · vista ' + (prefs.startView === 'list' ? 'Lista' : 'Feed'), fn: () => pgOpen('start') }));
+      add('<div class="sec">Escuchar</div>');
+      add(pgRow({ cls: 'r-play', icon: 'play', label: 'Reproducción', val: 'Saltos −' + skipBack() + ' / +' + skipFwd() + ' s · precarga ' + (prefs.preload ? 'activada' : 'apagada'), fn: () => pgOpen('play') }));
+      add(pgRow({ cls: 'r-look', icon: 'eye', label: 'Apariencia', val: 'Tono ' + keyFmtName() + ' · lista ' + (prefs.dense ? 'compacta' : 'cómoda') + ' · letra ' + (prefs.bigText ? 'grande' : 'normal'), fn: () => pgOpen('look') }));
+      add('<div class="sec">App</div>');
+      add(pgRow({ cls: 'r-diag', icon: 'more', label: 'Diagnóstico', val: 'Para Claude', go: false, fn: diagnostics }));
+      if (loader()) add(pgRow({ cls: 'r-upd', icon: 'fwd', label: 'Buscar actualización', val: 'Versión ' + VERSION, go: false, fn: checkUpdate }));
+      add(pgRow({
+        cls: 'r-heard', icon: 'back', label: 'Olvidar escuchadas', val: heard.size + (heard.size === 1 ? ' canción' : ' canciones'), go: false, disabled: !heard.size,
+        fn: () => actionSheet('Olvidar escuchadas', 'Las ' + heard.size + ' canciones volverán a salir como sin escuchar.', '', [{ label: 'Olvidarlas', icon: 'back', pri: true, fn: () => { forgetHeard(); pgRender(true); } }]),
+      }));
+      add(pgRow({ cls: 'r-web', icon: 'ext', label: 'Ver la web original', go: false, fn: () => { pgClose(); closeApp(); } }));
+      add(`<div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`);
+      return 'Ajustes';
+    },
+    // con qué arranca la app
+    start(b) {
+      b.innerHTML = `
+        <div class="lab" style="margin-top:10px">Sección</div>
+        <div class="tags tg-sec">${SECTIONS.map((x) => `<button class="tag" data-k="${x.key}">${esc(x.name)}</button>`).join('')}</div>
+        <div class="lab">Vista al abrir</div>
+        ${pgSeg('sv', [['feed', 'Feed'], ['list', 'Lista']], prefs.startView === 'list' ? 'list' : 'feed')}
+        <div style="height:6px"></div>
+        ${tgHtml('forceStart', 'Empezar siempre con los filtros predeterminados', 'Aunque entres desde un marcador, un enlace o soundeo.com')}
+        ${tgHtml('autoOpen', 'Abrir la app automáticamente', 'Al entrar en Soundeo desde el móvil')}
+        <button class="opt pri bmine" style="margin-top:6px">${i('feed')}<span>Ir ahora a la sección y filtros de inicio</span></button>`;
+      const paintSec = () => $$('.tg-sec .tag', b).forEach((x) => x.classList.toggle('on', x.dataset.k === (prefs.startSection || 'avail')));
+      paintSec();
+      $$('.tg-sec .tag', b).forEach((x) => x.addEventListener('click', () => { prefs.startSection = x.dataset.k; savePrefs(); paintSec(); }));
+      wireSeg(b, 'sv', (v) => { prefs.startView = v; savePrefs(); });
+      wireSwitches(b);
+      $('.bmine', b).addEventListener('click', goStart);
+      return 'Al abrir';
+    },
+    play(b) {
+      const sk = (k, title, vals) => `<div class="lab">${title} <small>segundos</small></div>
+        <div class="bpm skr"><input class="skin" data-k="${k}" type="number" inputmode="numeric" min="1" max="99" aria-label="${title}, segundos"><div class="presets">${vals.map((v) => `<button class="tag skp" data-k="${k}" data-v="${v}">${v}</button>`).join('')}</div></div>`;
+      b.innerHTML = `
+        <div class="sec">Botones de salto</div>
+        ${sk('skipBack', 'Atrás', [5, 10, 15, 30])}
+        ${sk('skipFwd', 'Adelante', [10, 15, 30, 60])}
+        <div class="note">Son los dos botones de los lados del reproductor. De 1 a 99 segundos.</div>
+        <div class="sec">Al escuchar</div>
+        ${tgHtml('autoNext', 'Pasar a la siguiente al acabar', 'Cuando termina la preview')}
+        ${tgHtml('preload', 'Precargar las siguientes canciones', 'Empiezan a sonar al instante y se puede saltar por ellas sin esperar. Gasta más datos')}
+        ${tgHtml('skipHeard', 'Feed: solo lo que no he escuchado', 'En las secciones, oculta los tracks que ya han sonado')}
+        ${tgHtml('siteHeard', 'Sincronizar escuchadas con la web', 'Lo que Soundeo marca como escuchado cuenta aquí, y lo que escuchas aquí se marca en Soundeo')}
+        ${tgHtml('confirmDownload', 'Confirmar antes de descargar', 'Para no gastar descargas sin querer')}`;
+      const val = (k) => (k === 'skipBack' ? skipBack() : skipFwd());
+      const paint = (fields) => {
+        if (fields) $$('.skin', b).forEach((x) => { x.value = val(x.dataset.k); });
+        $$('.skp', b).forEach((x) => x.classList.toggle('on', +x.dataset.v === val(x.dataset.k)));
+      };
+      const set = (k, v) => { prefs[k] = clampInt(v, 1, 99, DEFAULT_PREFS[k]); savePrefs(); paintSkips(); };
+      $$('.skp', b).forEach((x) => x.addEventListener('click', () => { set(x.dataset.k, x.dataset.v); paint(true); }));
+      $$('.skin', b).forEach((x) => {
+        // se guarda mientras se escribe: en el iPhone, tocar ‹ no le quita el foco al campo
+        x.addEventListener('input', () => { if (isFinite(parseInt(x.value, 10))) { set(x.dataset.k, x.value); paint(false); } });
+        x.addEventListener('change', () => paint(true));
+      });
+      paint(true);
+      wireSwitches(b);
+      return 'Reproducción';
+    },
+    look(b) {
+      b.innerHTML = `
+        <div class="lab" style="margin-top:10px">Tono <small class="kfx"></small></div>
+        ${pgSeg('kf', [['both', 'Los dos'], ['cam', 'Camelot'], ['mus', 'Musical']], prefs.keyFmt === 'cam' || prefs.keyFmt === 'mus' ? prefs.keyFmt : 'both')}
+        <div class="lab">Lista</div>
+        ${pgSeg('ldn', [['0', 'Cómoda'], ['1', 'Compacta']], prefs.dense ? '1' : '0')}
+        <div class="lab">Tamaño de letra</div>
+        ${pgSeg('ltx', [['0', 'Normal'], ['1', 'Grande']], prefs.bigText ? '1' : '0')}
+        <div class="note">La letra grande se nota sobre todo en la lista; en el feed crece poco, para que todo siga cabiendo.</div>
+        <div class="sec">Pantalla</div>
+        ${tgHtml('ui2', 'Diseño nuevo (en pruebas)', 'Pestañas abajo (Feed, Lista, Buscar, Chat, Ajustes) y la lista se elige arriba. Solo en vertical')}
+        ${tgHtml('immersive', 'Esconder la barra de Safari', 'Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas')}`;
+      const ex = () => { $('.kfx', b).textContent = 'se verá «' + keyText('Amin') + '»'; };
+      ex();
+      wireSeg(b, 'kf', (v) => { prefs.keyFmt = v; savePrefs(); ex(); applyLook(); });
+      wireSeg(b, 'ldn', (v) => { prefs.dense = v === '1'; savePrefs(); applyLook(); });
+      wireSeg(b, 'ltx', (v) => { prefs.bigText = v === '1'; savePrefs(); applyLook(); });
+      wireSwitches(b);
+      // al apagar el diseño nuevo esta pantalla deja de existir: decir dónde quedan los ajustes
+      $('.sw[data-p="ui2"]', b).addEventListener('click', () => { if (!prefs.ui2) toast('Diseño de siempre: los ajustes vuelven a su botón de arriba'); });
+      return 'Apariencia';
+    },
+    // segunda capa: filtros predeterminados ('start') o los de la lista que se ve ('cur')
+    filters(b, foot, mode) {
+      const isStart = mode === 'start';
+      if (!isStart && !(cur && cur.canFilter)) {
+        b.appendChild(el('<div class="note" style="margin-top:10px">Esta lista no tiene filtros.</div>'));
+        return 'Filtros actuales';
+      }
+      if (!fdraft || fdraft.mode !== mode || (!isStart && fdraft.src !== cur)) {
+        const f0 = cleanFilters(isStart ? defFilters : cur.filters);
+        if (isStart) f0.search = '';
+        fdraft = { mode, f: f0, src: isStart ? null : cur, dirty: false };
+      }
+      const f = fdraft.f;
+      if (orderBpm(f) && isStart) setStartFilters(f);
+      const loose = !isStart && !!cur.loose;
+      const add = (x) => { const n = typeof x === 'string' ? el(x) : x; b.appendChild(n); return n; };
+      add(`<div class="note" style="margin-top:6px">${isStart ? 'Con qué se abren la app y las secciones del menú. Seguidos va siempre sin filtros.' : 'Filtros de ' + esc(cur.title) + '.' + (loose ? ' En esta sección Soundeo puede no aplicar todos; el género se filtra en la app.' : '')}</div>`);
+      add(pgRow({ cls: 'r-gen', label: 'Géneros', val: f.genres.length ? shortList(f.genres.map(genreName)) : 'Todos', small: f.genres.length ? String(f.genres.length) : '', fn: () => pgOpen('f-genres') }));
+      add(pgRow({ cls: 'r-bpm', label: 'BPM', val: bpmText(f), fn: () => pgOpen('f-bpm') }));
+      add(pgRow({ cls: 'r-key', label: 'Tono', val: f.keys.length ? shortList(f.keys.map((k) => (camelot(k) ? camelot(k) + ' ' : '') + k)) : 'Cualquiera', small: f.keys.length ? String(f.keys.length) : '', fn: () => pgOpen('f-keys') }));
+      if (!loose) {
+        add(pgRow({
+          cls: 'r-time', label: 'Fecha de lanzamiento', val: timeName(f.time), go: false,
+          fn: () => actionSheet('Fecha de lanzamiento', '', '', TIME_OPTS.map(([v, n]) => ({ label: n, small: String(f.time) === v ? '●' : '', fn: () => { f.time = v; fTouched(); pgRender(true); } }))),
+        }));
+        add(pgRow({
+          cls: 'r-type', label: 'Tipo de track', val: typeName(f.trackType), go: false,
+          fn: () => actionSheet('Tipo de track', '', '', TYPE_OPTS.map(([v, n]) => ({ label: n, small: String(f.trackType || '0') === v ? '●' : '', fn: () => { f.trackType = v; fTouched(); pgRender(true); } }))),
+        }));
+      }
+      if (!isStart && !loose) {
+        add('<div class="lab">Buscar por título</div>');
+        const inp = add('<input class="txt srch-t" type="search" placeholder="Mín. 3 letras" autocomplete="off" autocapitalize="off">');
+        inp.value = f.search || '';
+        inp.addEventListener('input', () => { f.search = clean(inp.value); fdraft.dirty = true; });
+        const tg = add('<div class="tg"><div><b>Solo disponibles</b><small>Oculta los tracks que solo se pueden votar</small></div><button class="sw sw-av" aria-label="Solo disponibles"></button></div>');
+        const sw = $('.sw-av', tg);
+        sw.classList.toggle('on', String(f.available) !== '0');
+        sw.addEventListener('click', () => { f.available = String(f.available) === '0' ? '1' : '0'; sw.classList.toggle('on', String(f.available) !== '0'); fdraft.dirty = true; });
+      }
+      const same = comboKey(f) === comboKey(defFilters);
+      if (isStart) {
+        add(pgRow({ cls: 'r-clear', icon: 'close', label: 'Quitar todos los filtros', go: false, disabled: comboKey(f) === comboKey({}), fn: () => { Object.assign(f, comboOf({})); fTouched(); pgRender(true); } }));
+      } else {
+        add(pgRow({ cls: 'r-reset', icon: 'back', label: 'Volver a los predeterminados', val: same ? 'Ya son estos' : describeFilters(defFilters), go: false, disabled: same, fn: () => { Object.assign(f, comboOf(defFilters)); fTouched(); pgRender(true); } }));
+      }
+      add(`<div class="sec">Guardados <span class="svn">${savedFilters.length} de ${MAX_SAVED}</span></div>`);
+      const here = comboKey(f);
+      savedFilters.forEach((sv) => {
+        const on = comboKey(sv.f) === here;
+        const r = add(`<div class="svrow${on ? ' on' : ''}"><button class="opt svgo"><span class="ol"><span>${esc(sv.name)}</span><em>${esc(describeFilters(sv.f))}</em></span>${on ? '<small>●</small>' : ''}</button><button class="rb svmore" aria-label="Opciones de ${esc(sv.name)}">${i('more')}</button></div>`);
+        $('.svgo', r).addEventListener('click', () => useSaved(sv));
+        $('.svmore', r).addEventListener('click', () => savedMenu(sv));
+      });
+      if (!savedFilters.length) add(`<div class="note" style="margin-top:0">Guarda hasta ${MAX_SAVED} combinaciones de filtros para cambiar de una a otra con un toque.</div>`);
+      add(pgRow({ cls: 'r-save', icon: 'plus', label: 'Guardar combinación', val: 'Los filtros de esta pantalla', go: false, fn: saveComboGo }));
+      if (!isStart) {
+        add(pgRow({
+          cls: 'r-pin', icon: 'check', label: 'Fijar como predeterminados', val: same ? 'Ya son los predeterminados' : 'La app se abrirá con estos filtros', go: false, disabled: same,
+          fn: () => { orderBpm(f); setStartFilters(f); toast('Fijados: la app se abrirá con estos filtros'); pgRender(true); },
+        }));
+        const ap = el('<button class="btn pri bapply">Aplicar filtros</button>');
+        ap.addEventListener('click', applyDraft);
+        foot.appendChild(ap);
+      }
+      return isStart ? 'Filtros predeterminados' : 'Filtros actuales';
+    },
+    // tercera capa
+    'f-genres'(b) {
+      if (!fdraft) { pgPop(0); return ''; }
+      const f = fdraft.f;
+      b.innerHTML = `<div class="lab" style="margin-top:10px"><span class="gcount"></span><a href="#" class="gclear">Quitar todos</a></div>
+        <div class="tags tg-genres">${genreOptions().map((g) => `<button class="tag" data-id="${esc(g.id)}">${esc(g.name)}</button>`).join('')}</div>`;
+      const paint = () => {
+        $$('.tag', b).forEach((x) => x.classList.toggle('on', f.genres.includes(x.dataset.id)));
+        $('.gcount', b).textContent = f.genres.length ? f.genres.length + (f.genres.length === 1 ? ' seleccionado' : ' seleccionados') : 'Todos los géneros';
+      };
+      $$('.tag', b).forEach((x) => x.addEventListener('click', () => {
+        const id = x.dataset.id;
+        f.genres = f.genres.includes(id) ? f.genres.filter((g) => g !== id) : f.genres.concat(id);
+        fTouched();
+        paint();
+      }));
+      $('.gclear', b).addEventListener('click', (e) => { e.preventDefault(); f.genres = []; fTouched(); paint(); });
+      paint();
+      return 'Géneros';
+    },
+    'f-bpm'(b) {
+      if (!fdraft) { pgPop(0); return ''; }
+      const f = fdraft.f;
+      b.innerHTML = `<div class="lab" style="margin-top:10px">De cuánto a cuánto <a href="#" class="bpmclear">Quitar</a></div>
+        <div class="bpm"><input class="bmin" type="number" inputmode="numeric" placeholder="mín" min="0" max="260" aria-label="BPM mínimo"><span>–</span><input class="bmax" type="number" inputmode="numeric" placeholder="máx" min="0" max="260" aria-label="BPM máximo"></div>
+        <div class="presets">${[[120, 126], [124, 130], [127, 140], [130, 140], [135, 150]].map(([a, z]) => `<button class="tag bp" data-a="${a}" data-z="${z}">${a}–${z}</button>`).join('')}</div>`;
+      const mn = $('.bmin', b);
+      const mx = $('.bmax', b);
+      const paint = (fields) => {
+        if (fields) { mn.value = f.bpmMin != null ? f.bpmMin : ''; mx.value = f.bpmMax != null ? f.bpmMax : ''; }
+        $$('.bp', b).forEach((x) => x.classList.toggle('on', +x.dataset.a === f.bpmMin && +x.dataset.z === f.bpmMax));
+      };
+      // se guarda mientras se escribe: en el iPhone, tocar ‹ no le quita el foco al campo
+      const read = () => {
+        const a = parseInt(mn.value, 10);
+        const z = parseInt(mx.value, 10);
+        f.bpmMin = isFinite(a) ? Math.max(0, Math.min(260, a)) : null;
+        f.bpmMax = isFinite(z) ? Math.max(0, Math.min(260, z)) : null;
+        fTouched();
+        paint(false);
+      };
+      mn.addEventListener('input', read);
+      mx.addEventListener('input', read);
+      const tidy = () => { if (orderBpm(f)) fTouched(); paint(true); };
+      mn.addEventListener('change', tidy);
+      mx.addEventListener('change', tidy);
+      $$('.bp', b).forEach((x) => x.addEventListener('click', () => { f.bpmMin = +x.dataset.a; f.bpmMax = +x.dataset.z; fTouched(); paint(true); }));
+      $('.bpmclear', b).addEventListener('click', (e) => { e.preventDefault(); f.bpmMin = f.bpmMax = null; fTouched(); paint(true); });
+      paint(true);
+      return 'BPM';
+    },
+    'f-keys'(b) {
+      if (!fdraft) { pgPop(0); return ''; }
+      const f = fdraft.f;
+      b.innerHTML = `<div class="lab" style="margin-top:10px"><span class="gcount"></span><a href="#" class="gclear">Quitar todos</a></div>
+        <div class="tags tg-keys">${keyOptions().map((k) => `<button class="tag" data-id="${esc(k.id)}"><small>${esc(k.cam)}</small>${esc(k.id)}</button>`).join('')}</div>`;
+      const paint = () => {
+        $$('.tag', b).forEach((x) => x.classList.toggle('on', f.keys.includes(x.dataset.id)));
+        $('.gcount', b).textContent = f.keys.length ? f.keys.length + (f.keys.length === 1 ? ' tono' : ' tonos') : 'Cualquier tono';
+      };
+      $$('.tag', b).forEach((x) => x.addEventListener('click', () => {
+        const id = x.dataset.id;
+        f.keys = f.keys.includes(id) ? f.keys.filter((k) => k !== id) : f.keys.concat(id);
+        fTouched();
+        paint();
+      }));
+      $('.gclear', b).addEventListener('click', (e) => { e.preventDefault(); f.keys = []; fTouched(); paint(); });
+      paint();
+      return 'Tono';
+    },
+    // nombre de una combinación guardada (nueva o ya existente)
+    'f-name'(b, foot, arg) {
+      if (!fdraft) { pgPop(0); return ''; }
+      const sv = arg && arg.id != null ? savedFilters.find((x) => x.id === arg.id) : null;
+      const f = sv ? sv.f : fdraft.f;
+      const frm = el(`<form class="svform" action="#"><div class="note" style="margin-top:6px">${esc(describeFilters(f))}</div><div class="lab">Nombre</div><input class="txt svname" type="text" enterkeyhint="done" maxlength="28" placeholder="Por ejemplo: House rápido" autocomplete="off" autocorrect="off" spellcheck="false"></form>`);
+      const inp = $('.svname', frm);
+      inp.value = sv ? sv.name : '';
+      const save = (e) => {
+        if (e) e.preventDefault();
+        const name = clean(inp.value).slice(0, 28) || (sv ? sv.name : describeFilters(f).slice(0, 28));
+        if (sv) { sv.name = name; toast('Renombrado: «' + name + '»'); }
+        else {
+          if (savedFilters.length >= MAX_SAVED) { toast('Ya hay ' + MAX_SAVED + ' guardados: borra uno para guardar otro'); return; }
+          savedFilters.push({ id: 'f' + Date.now().toString(36), name, f: comboOf(f) });
+          toast('Guardado: «' + name + '»');
+        }
+        saveSaved();
+        pgBack();
+      };
+      frm.addEventListener('submit', save);
+      b.appendChild(frm);
+      const ok = el('<button class="btn pri bsvok">Guardar</button>');
+      ok.addEventListener('click', () => save());
+      foot.appendChild(ok);
+      try { inp.focus(); } catch (e) {}
+      return sv ? 'Renombrar' : 'Guardar combinación';
+    },
+  };
+
   /* ───────────── ajustes ───────────── */
+  // Interruptores de un ajuste sí / no (`data-p`): los usan la hoja de siempre y las pantallas del diseño nuevo.
+  function wireSwitches(b) {
+    $$('.sw[data-p]', b).forEach((x) => {
+      const p = x.dataset.p;
+      x.classList.toggle('on', !!prefs[p]);
+      x.addEventListener('click', () => {
+        prefs[p] = !prefs[p];
+        savePrefs();
+        x.classList.toggle('on', !!prefs[p]);
+        if (p === 'skipHeard' || p === 'siteHeard') {
+          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+          setForced(new Set());
+          rebuild(current || deck[activeIdx]);
+        }
+        if (p === 'preload' && !prefs.preload) dropPreloads();
+        if (p === 'immersive') { LS.set('immHint', 0); immApply(); }
+        if (p === 'ui2') applyUi();
+      });
+    });
+  }
+  function forgetHeard() {
+    heard.clear();
+    LS.set('heard', []);
+    setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+    setForced(new Set());
+    rebuild(current || deck[activeIdx]);
+    toast('Historial de escuchadas borrado');
+  }
   function goStart() {
     closeSheets();
     openSource(sectionDesc(prefs.startSection || 'avail'), { root: true, view: 'list' });
@@ -3868,37 +4524,13 @@
     const bm = $('.bmine', b);
     if (bm) bm.addEventListener('click', goStart);
     $('.ostart', b).addEventListener('click', () => openSettings('start'));
-    $$('.sw[data-p]', b).forEach((x) => {
-      const p = x.dataset.p;
-      x.classList.toggle('on', !!prefs[p]);
-      x.addEventListener('click', () => {
-        prefs[p] = !prefs[p];
-        savePrefs();
-        x.classList.toggle('on', !!prefs[p]);
-        if (p === 'skipHeard' || p === 'siteHeard') {
-          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
-          setForced(new Set());
-          rebuild(current || deck[activeIdx]);
-        }
-        if (p === 'preload' && !prefs.preload) dropPreloads();
-        if (p === 'immersive') { LS.set('immHint', 0); immApply(); }
-        if (p === 'ui2') applyUi();
-      });
-    });
+    wireSwitches(b);
     const paintSv = () => $$('.sv button', b).forEach((x) => x.classList.toggle('on', x.dataset.v === prefs.startView));
     paintSv();
     $$('.sv button', b).forEach((x) => x.addEventListener('click', () => { prefs.startView = x.dataset.v; savePrefs(); paintSv(); }));
     $('.gomenu', b).addEventListener('click', openMenu);
     $('.goweb', b).addEventListener('click', () => { closeSheets(); closeApp(); });
-    $('.rsheard', b).addEventListener('click', () => {
-      heard.clear();
-      LS.set('heard', []);
-      setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
-      setForced(new Set());
-      rebuild(current || deck[activeIdx]);
-      closeSheets();
-      toast('Historial de escuchadas borrado');
-    });
+    $('.rsheard', b).addEventListener('click', () => { forgetHeard(); closeSheets(); });
     $('.diag', b).addEventListener('click', diagnostics);
     const ou = $('.oupd', b);
     if (ou) ou.addEventListener('click', () => { closeSheets(); checkUpdate(); });
@@ -3973,10 +4605,23 @@
         return { logged: isLoggedIn(), looksOut: looksLoggedOut(), host: location.hostname, cookiesOn: navigator.cookieEnabled, storedKeys: keys, storedMin: age(born), reloadedMin: age(SS.get('relog', 0)), wantLogin: !!SS.get('wantLogin', 0) };
       })(),
       screen: {
-        imm: !!prefs.immersive, ui2: !!prefs.ui2, on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
+        imm: !!prefs.immersive, ui2: !!prefs.ui2, pg: pgStack.map((x) => x.id), on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
         vv: window.visualViewport ? Math.round(window.visualViewport.height) : null, sh: screen.height, sw: screen.width, sab: immSab(),
         measured: imm.h ? { h: imm.h, w: imm.w, sab: imm.sab } : null, log: imm.log,
       },
+      // 2.1: ajustes nuevos, y qué valores de «tipo de track» ofrece la web de verdad (el filtro usa los de una página guardada)
+      look: { skipBack: skipBack(), skipFwd: skipFwd(), keyFmt: prefs.keyFmt || 'both', dense: !!prefs.dense, big: !!prefs.bigText, saved: savedFilters.length },
+      trackTypes: (() => {
+        try {
+          const seen = new Map();
+          $$('a[href*="trackTypeFilter="]').slice(0, 600).forEach((a) => {
+            const m = /trackTypeFilter=([^&#]+)/.exec(a.getAttribute('href') || '');
+            if (m && m[1] !== '0' && !seen.has(m[1]) && seen.size < 8) seen.set(m[1], short(clean(a.textContent), 30));
+          });
+          const ctl = $$('[name="trackTypeFilter"]').slice(0, 6).map((n) => ({ tag: n.tagName, type: n.type || '', value: short(String(n.value), 20), text: short(clean((n.parentNode || n).textContent), 40), opts: n.options ? Array.from(n.options).slice(0, 10).map((o) => o.value + '=' + short(clean(o.textContent), 20)) : undefined }));
+          return { links: Array.from(seen.entries()), controls: ctl };
+        } catch (e) { return { err: String(e && e.message) }; }
+      })(),
       votes: { shapes: Array.from(voteShapes.values()), detect: voteDetect, mine: myVotes.size, votable: tracks.filter((x) => x.vote).length, voted: tracks.filter((x) => x.vote && isVoted(x)).length },
       siteListened: { tracks: tracks.length, siteHeard: tracks.filter((x) => x.siteHeard).length, mine: tracks.filter((x) => heard.has(x.id)).length, heardTotal: heard.size },
     };
