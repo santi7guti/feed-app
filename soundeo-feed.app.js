@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '1.7.0';
+  const VERSION = '2.0.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -58,6 +58,7 @@
     preload: true,
     startSection: 'avail',
     immersive: false,
+    ui2: false, // diseño nuevo (2.0): pestañas abajo; apagado hasta que se pruebe en el iPhone
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
@@ -688,10 +689,12 @@
     more: '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="18.5" cy="12" r="1.9" fill="currentColor"/></svg>',
     go: '<svg viewBox="0 0 24 24"><path d="M7.5 16.5l9-9M9 7.5h7.5V15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
-    back: '<svg viewBox="0 0 24 24"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M7.6 3.6v4.1h4.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    fwd: '<svg viewBox="0 0 24 24"><path d="M18.5 12a6.5 6.5 0 1 1-2-4.7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M16.4 3.6v4.1h-4.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.46-5.78" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M6.5 2.5v4.1h4.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    fwd: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.46-5.78" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M17.5 2.5v4.1h-4.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     up: '<svg viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     ext: '<svg viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5l-8.5 8.5M17.5 14v4.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1H10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    rows: '<svg viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4.6" cy="7" r="1.3" fill="currentColor"/><circle cx="4.6" cy="12" r="1.3" fill="currentColor"/><circle cx="4.6" cy="17" r="1.3" fill="currentColor"/></svg>',
+    chat: '<svg viewBox="0 0 24 24"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
     menu: '<svg viewBox="0 0 24 24"><path d="M4.5 7h15M4.5 12h15M4.5 17h15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>',
     search: '<svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="5.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.2 15.2l4.3 4.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
     chev: '<svg viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -723,7 +726,7 @@
   svg{width:100%;height:100%;display:block;}
   .root{--bg:#0b0b0e;--fg:#f5f5f7;--mut:rgba(245,245,247,.62);--dim:rgba(245,245,247,.38);--line:rgba(255,255,255,.1);
     --glass:rgba(255,255,255,.13);--glass2:rgba(255,255,255,.2);--acc:#2ea8ff;--gold:#ffc83d;--ok:#34d27b;--like:#ff4d6d;
-    --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);--sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
+    --st:env(safe-area-inset-top,0px);--sb0:env(safe-area-inset-bottom,0px);--tb:0px;--sb:calc(var(--sb0) + var(--tb));--sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
     --top:calc(var(--st) + 54px);--ctrl:calc(var(--sb) + 118px);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
     color:var(--fg);font-size:15px;line-height:1.3;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;}
@@ -837,9 +840,9 @@
   .btns{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 0;}
   .cb{width:52px;height:52px;display:grid;place-items:center;border-radius:50%;}
   .cb i{width:30px;height:30px;display:block;}
-  .cb.sm i{width:26px;height:26px;position:relative;}
+  .cb.sm i{width:32px;height:32px;position:relative;}
   .cb.sm{position:relative;}
-  .cb.sm em{position:absolute;font-style:normal;font-size:9.5px;font-weight:800;top:50%;left:50%;transform:translate(-50%,-38%);}
+  .cb.sm em{position:absolute;font-style:normal;font-size:10px;line-height:1;font-weight:800;letter-spacing:-.2px;font-variant-numeric:tabular-nums;top:50%;left:50%;transform:translate(-50%,-50%);}
   .cb.big{width:68px;height:68px;background:var(--fg);color:#000;}
   .cb.big i{width:32px;height:32px;}
   .cb:active{transform:scale(.94);}
@@ -1002,6 +1005,27 @@
   .root.fabon:not(.open) .fab{display:flex;}
   
   /* móvil en horizontal: todo más bajo; texto hacia el centro, portada a su derecha y los botones al lado */
+  /* diseño nuevo (2.0, ajuste «ui2»): barra de pestañas abajo y la lista se elige arriba. Solo en vertical:
+     en horizontal no hay alto para la barra y se queda la de siempre. Todo lo que va pegado abajo usa --sb,
+     así que basta con sumarle el alto de la barra (--tb). */
+  .tabs{position:absolute;left:0;right:0;bottom:0;z-index:46;display:none;height:calc(var(--sb0) + 56px);padding:3px calc(var(--sr) + 6px) var(--sb0) calc(var(--sl) + 6px);background:rgba(16,16,20,.97);border-top:1px solid var(--line);}
+  .tabs button{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--mut);font-size:10.5px;font-weight:600;}
+  .tabs button i{width:23px;height:23px;display:block;}
+  .tabs button.on{color:var(--fg);font-weight:800;}
+  .srcp{display:none;align-items:center;gap:5px;height:38px;min-width:0;flex:0 1 auto;padding:0 11px 0 14px;border-radius:999px;background:var(--glass);font-size:14px;font-weight:700;}
+  .srcp span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .srcp i{width:15px;height:15px;display:block;flex:none;transform:rotate(-90deg);}
+  @media (orientation:portrait),(min-height:501px){
+    .root.ui2{--tb:56px;}
+    .root.ui2 .tabs{display:flex;}
+    .root.ui2 .seg,.root.ui2 .bsearch,.root.ui2 .bset{display:none;}
+    .root.ui2 .srcp{display:flex;}
+    .root.ui2 .app:not(.deep) .bnav{display:none;}
+    .root.ui2 .app.has-ctx[data-view=feed] .ctx{display:none;}
+    .root.ui2 .app.has-ctx .cin{padding-top:calc(var(--top) + 4px);}
+    .root.ui2 .sheet{--sb:var(--sb0);}
+    .root.ui2 .srch{padding-bottom:calc(var(--sb0) + 56px);}
+  }
   @media (orientation:landscape) and (max-height:500px){
     .root{--top:calc(var(--st) + 46px);--ctrl:calc(var(--sb) + 80px);}
     .topbar{padding-top:calc(var(--st) + 4px);padding-bottom:4px;}
@@ -1107,6 +1131,7 @@
           <div class="list"></div>
           <div class="topbar">
             <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
+            <button class="srcp" aria-label="Elegir lista"><span></span>${i('chev')}</button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
             <button class="pill dlleft" title="Likes y descargas que te quedan hoy"><span class="vl">${i('heart')}<b>–</b></span>${i('dl')}<span class="dlc">–</span></button>
@@ -1132,6 +1157,13 @@
             <button class="mb mplay" aria-label="Reproducir">${i('play')}</button>
             <button class="mb mnext" aria-label="Siguiente">${i('next')}</button>
             <button class="mb mexp" aria-label="Abrir en feed">${i('up')}</button>
+          </div>
+          <div class="tabs">
+            <button data-t="feed">${i('feed')}<span>Feed</span></button>
+            <button data-t="list">${i('rows')}<span>Lista</span></button>
+            <button data-t="search">${i('search')}<span>Buscar</span></button>
+            <button data-t="chat">${i('chat')}<span>Chat</span></button>
+            <button data-t="settings">${i('sliders')}<span>Ajustes</span></button>
           </div>
           <div class="srch">
             <form class="srow" action="#">
@@ -1165,6 +1197,9 @@
     $('.bnav', sr).addEventListener('click', () => (stack.length > 1 ? goBack() : openMenu()));
     $('.bsearch', sr).addEventListener('click', () => openSearch());
     $('.bset', sr).addEventListener('click', () => openSettings());
+    $('.srcp', sr).addEventListener('click', () => openMenu());
+    $$('.tabs button', sr).forEach((b) => b.addEventListener('click', () => tabGo(b.dataset.t)));
+    root.classList.toggle('ui2', !!prefs.ui2);
     $('.dlleft', sr).addEventListener('click', () => toast(dlLeftText()));
     ctxEl.addEventListener('click', () => setView('list'));
     $('.bplay', sr).addEventListener('click', togglePlay);
@@ -1394,6 +1429,36 @@
     app.dataset.view = view;
     $$('.seg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
     SS.set('view', view);
+    paintTabs();
+  }
+  // Diseño nuevo (2.0): la barra de pestañas. Buscar y Ajustes abren de momento lo de siempre.
+  function tabGo(t) {
+    if (t === 'feed' || t === 'list') {
+      closeSheets();
+      closeSearch();
+      if (view !== t) setView(t);
+    } else if (t === 'search') {
+      if (srchEl.classList.contains('on')) { try { $('.sq', srchEl).focus(); } catch (e) {} } else openSearch();
+    } else if (t === 'settings') {
+      closeSearch();
+      openSettings();
+    } else if (t === 'chat') {
+      toast('El chat llega en una próxima versión');
+    }
+    paintTabs();
+  }
+  function paintTabs() {
+    if (!root) return;
+    const st = $('.s-settings', root);
+    const on = st && st.classList.contains('on') ? 'settings' : srchEl && srchEl.classList.contains('on') ? 'search' : view;
+    $$('.tabs button', root).forEach((b) => b.classList.toggle('on', b.dataset.t === on));
+  }
+  function applyUi() {
+    if (!root) return;
+    root.classList.toggle('ui2', !!prefs.ui2);
+    paintChrome();
+    paintTabs();
+    requestAnimationFrame(() => { layoutCards(); if (view === 'feed') feedJump(activeIdx); });
   }
   function setView(v) {
     // si sales del feed a mitad de un deslizamiento, la tarjeta a la que ibas ya cuenta
@@ -1647,6 +1712,8 @@
     const nav = $('.bnav', root);
     nav.innerHTML = i(deep ? 'chev' : 'menu');
     nav.setAttribute('aria-label', deep ? 'Atrás' : 'Secciones');
+    app.classList.toggle('deep', deep);
+    $('.srcp span', root).textContent = cur ? (kindName(cur) ? kindName(cur) + ' · ' : '') + cur.title : 'Soundeo';
     // en el feed, una etiqueta con dónde estás (salvo en la sección de siempre)
     const show = !!cur && (deep || cur.key !== startListKey() || cur.kind !== 'section');
     app.classList.toggle('has-ctx', show);
@@ -1863,6 +1930,7 @@
   function openSearch(prefill) {
     closeSheets();
     srchEl.classList.add('on');
+    paintTabs();
     const inp = $('.sq', srchEl);
     inp.value = typeof prefill === 'string' ? prefill : cur && cur.kind === 'search' ? cur.query : '';
     paintRecent();
@@ -1871,6 +1939,7 @@
   function closeSearch() {
     if (!srchEl || !srchEl.classList.contains('on')) return;
     srchEl.classList.remove('on');
+    paintTabs();
     try { $('.sq', srchEl).blur(); } catch (e) {}
   }
   function paintRecent() {
@@ -3584,11 +3653,13 @@
     closeSheets();
     shadeEl.classList.add('on');
     $('.' + cls, root).classList.add('on');
+    paintTabs();
   }
   function closeSheets() {
     if (!root) return;
     shadeEl.classList.remove('on');
     $$('.sheet.on', root).forEach((s) => s.classList.remove('on'));
+    paintTabs();
   }
   function actionSheet(title, sub, note, opts) {
     const s = $('.s-action', root);
@@ -3701,6 +3772,7 @@
       ${filterBlock}
       ${isStart ? '' : `
       <div class="sec">Pantalla</div>
+      <div class="tg"><div><b>Diseño nuevo (en pruebas)</b><small>Pestañas abajo (Feed, Lista, Buscar, Chat, Ajustes) y la lista se elige arriba. Solo en vertical</small></div><button class="sw" data-p="ui2"></button></div>
       <div class="tg"><div><b>Esconder la barra de Safari</b><small>Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas</small></div><button class="sw" data-p="immersive"></button></div>
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
@@ -3810,6 +3882,7 @@
         }
         if (p === 'preload' && !prefs.preload) dropPreloads();
         if (p === 'immersive') { LS.set('immHint', 0); immApply(); }
+        if (p === 'ui2') applyUi();
       });
     });
     const paintSv = () => $$('.sv button', b).forEach((x) => x.classList.toggle('on', x.dataset.v === prefs.startView));
@@ -3900,7 +3973,7 @@
         return { logged: isLoggedIn(), looksOut: looksLoggedOut(), host: location.hostname, cookiesOn: navigator.cookieEnabled, storedKeys: keys, storedMin: age(born), reloadedMin: age(SS.get('relog', 0)), wantLogin: !!SS.get('wantLogin', 0) };
       })(),
       screen: {
-        imm: !!prefs.immersive, on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
+        imm: !!prefs.immersive, ui2: !!prefs.ui2, on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
         vv: window.visualViewport ? Math.round(window.visualViewport.height) : null, sh: screen.height, sw: screen.width, sab: immSab(),
         measured: imm.h ? { h: imm.h, w: imm.w, sab: imm.sab } : null, log: imm.log,
       },
