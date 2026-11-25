@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.1';
+  const VERSION = '2.1.2';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -808,6 +808,15 @@
   .feed::-webkit-scrollbar{display:none;}
   .root.imm .feed{overscroll-behavior:contain auto;}
   .root.imm.imm-armed .feed{touch-action:pan-x pan-y;}
+  /* 2.1.2 (diseño nuevo): con la barra escondida, desde los mandos y las barras de la app no se puede arrastrar la página */
+  .root.ui2.imm:not(.imm-armed) .topbar,.root.ui2.imm:not(.imm-armed) .topbar *,.root.ui2.imm:not(.imm-armed) .ctx,.root.ui2.imm:not(.imm-armed) .ctx *,
+  .root.ui2.imm:not(.imm-armed) .controls,.root.ui2.imm:not(.imm-armed) .controls *,.root.ui2.imm:not(.imm-armed) .mini,.root.ui2.imm:not(.imm-armed) .mini *,
+  .root.ui2.imm:not(.imm-armed) .tabs,.root.ui2.imm:not(.imm-armed) .tabs *{touch-action:none;}
+  /* 2.1.2 (diseño nuevo + barra de Safari): la portada y el texto no se mueven cuando la barra se esconde; el hueco que se gana queda debajo */
+  .root.cvfix .mid{justify-content:flex-start;padding-top:var(--mpt,0px);}
+  .psv,.plv{position:absolute;left:0;top:0;width:1px;visibility:hidden;pointer-events:none;}
+  .psv{height:100svh;}
+  .plv{height:100lvh;}
   .sap{position:absolute;left:0;bottom:0;width:1px;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;}
   .app[data-view=list] .feed,.app[data-view=list] .controls{display:none;}
   .card{position:relative;flex:0 0 100%;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;}
@@ -1207,6 +1216,17 @@
   let fdraft = null; // filtros que se están tocando en Ajustes: { mode: 'start' | 'cur', f, src }
   let searchKeep = null; // la última búsqueda hecha: la pestaña Buscar vuelve a ella sin pedirla otra vez
   let backWant = null; // hasta qué profundidad tiene que bajar el paso atrás que ha pedido el botón ‹
+  // 2.1.2
+  let shadow = null; // la raíz de sombra de la app
+  let srWas = null; // cómo tenía la página lo de recolocarse al ir atrás (se devuelve al cerrar la app)
+  // ¿se está escribiendo? (campo con el foco = teclado abierto)
+  const typing = () => { const a = shadow && shadow.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
+  // registro corto de las pantallas de Ajustes, para el diagnóstico
+  const pgLog = [];
+  const pgNote = (ev) => {
+    pgLog.push([Math.round(performance.now() / 100) / 10, ev, pgStack.map((x) => x.id).join('>')]);
+    if (pgLog.length > 14) pgLog.shift();
+  };
   const pgOn = () => pgStack.length > 0;
   const overOn = () => pgOn() || !!(srchEl && srchEl.classList.contains('on'));
   const paintOver = () => { if (app) app.classList.toggle('over', overOn()); };
@@ -1240,14 +1260,17 @@
     host.id = 'sx-host';
     document.body.appendChild(host);
     const sr = host.attachShadow({ mode: 'open' });
+    shadow = sr;
     // aislar teclas para que no disparen los atajos de Soundeo
     ['keydown', 'keypress', 'keyup'].forEach((ev) => host.addEventListener(ev, (e) => e.stopPropagation()));
     // al cerrar el teclado Safari puede dejar la página desplazada: devolverla a su sitio
     host.addEventListener('focusout', () => setTimeout(() => { if (isOpen && (!imm.on || imm.paused)) window.scrollTo(0, 0); }, 60));
     // mientras se escribe (teclado abierto) la página vuelve a estar fija, como sin el modo inmersivo
-    const typing = () => { const a = sr.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
     host.addEventListener('focusin', () => { if (typing()) immPause(true); });
     host.addEventListener('focusout', () => setTimeout(() => { if (!typing()) immPause(false); }, 120));
+    // 2.1.2: Safari no manda «focusout» cuando el campo en el que se escribía desaparece de la pantalla, y entonces
+    // nadie devolvía la página a su sitio ni reanudaba el modo de la barra. Se comprueba también en cada toque.
+    host.addEventListener('touchstart', kbSync, { capture: true, passive: true });
 
     sr.innerHTML = `<style>${APP_CSS}</style>
       <div class="root">
@@ -1307,6 +1330,7 @@
           </div>
           <div class="toasts"></div>
           <div class="sap"></div>
+          <div class="psv"></div><div class="plv"></div>
           <div class="shade"></div>
           <div class="sheet s-settings"><div class="sh"><h2>Ajustes</h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div><div class="sf"></div></div>
           <div class="sheet s-action"><div class="sh"><h2></h2><button class="ibtn sclose">${i('close')}</button></div><div class="sb"></div></div>
@@ -1402,6 +1426,8 @@
     document.addEventListener('visibilitychange', retryStale);
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
+      try { history.scrollRestoration = 'manual'; } catch (err) {}
+      if (pgStack.length) pgNote('atrás');
       const want = backWant;
       backWant = null;
       // capas de Ajustes: un paso atrás (‹ o el gesto de Safari) quita al menos una capa
@@ -1420,6 +1446,9 @@
   /* ───────────── abrir / cerrar / vistas ───────────── */
   function openApp(v) {
     isOpen = true;
+    // 2.1.2: con la app abierta, el navegador no recoloca la página al ir atrás/adelante (con la barra de Safari
+    // activada la página de debajo mide 60 000 px: el salto se tomaba por «barra escondida»)
+    try { if (srWas == null) srWas = history.scrollRestoration; history.scrollRestoration = 'manual'; } catch (e) {}
     vpMeta.apply();
     document.documentElement.classList.add('sx-open');
     root.classList.add('open');
@@ -1433,6 +1462,7 @@
   let reopenOnReturn = false;
   function closeApp(away) {
     isOpen = false;
+    try { if (srWas != null) { history.scrollRestoration = srWas; srWas = null; } } catch (e) {}
     reopenOnReturn = !!away;
     SS.set('closed', 1);
     root.classList.remove('open');
@@ -1450,13 +1480,75 @@
   // contrario (deslizar la página hacia abajo), que es lo que la haría volver. Tocar la barra la recupera.
   //   armado    = el feed deja pasar el gesto vertical a la página (la barra está grande o no se sabe)
   //   bloqueado = el feed vuelve a ser solo horizontal, como sin este modo (la barra ya está pequeña)
-  const imm = { on: false, paused: false, armed: false, y0: 0, h: 0, w: 0, sab: 0, t0: 0, lockT: 0, log: [] };
+  const imm = { on: false, paused: false, armed: false, y0: 0, h: 0, w: 0, sab: 0, t0: 0, lockT: 0, log: [], touch: 0, touchT: 0, moved: false, mvT: 0, ih0: 0, setT: 0, rec: null, part: null };
   const immSab = () => { const p = root && $('.sap', root); return p ? p.offsetHeight : 0; };
   function immLog(ev) {
     let vv = null;
     try { vv = window.visualViewport ? Math.round(window.visualViewport.height) : null; } catch (e) {}
     imm.log.push({ t: Math.round((performance.now() - imm.t0) / 100) / 10, ev, y: Math.round(window.scrollY), ih: window.innerHeight, vv, sab: immSab() });
-    if (imm.log.length > 16) imm.log.shift();
+    if (imm.log.length > 24) imm.log.shift();
+  }
+  // 2.1.2 (solo con el diseño nuevo) — En el iPhone de Tiger (Safari 26.5) el alto visible SÍ cambia con la barra
+  // (645 con la barra grande, 739 encogida), así que la app puede ver lo que ha pasado en vez de suponerlo:
+  //   · mientras el dedo está en la pantalla no se toca nada; se decide al levantarlo y cuando el alto deja de moverse;
+  //   · se bloquea si la página ha subido Y el alto ha crecido (la barra se ha encogido de verdad); si el gesto se
+  //     queda corto y la barra no se mueve, sigue armado y el siguiente gesto vale;
+  //   · se apunta, por ancho de pantalla, el alto con la barra encogida (`hi`). Con la barra así, ningún gesto rearma:
+  //     solo se sale tocando la barra de Safari (el alto baja y se rearma solo);
+  //   · `u0` es el alto útil más pequeño que se ha visto (barra grande): con él la portada no cambia de tamaño
+  //     ni de sitio cuando la barra se mueve (ver layoutCards).
+  // Mientras no se haya visto crecer el alto en ese teléfono (`hi` = 0) se sigue a ciegas, como antes. Lo apuntado
+  // se borra al apagar y encender el ajuste.
+  const immNew = () => !!prefs.ui2;
+  function immRec() {
+    const w = window.innerWidth;
+    if (!imm.rec || imm.rec.w !== w) {
+      const s = (LS.get('immH', {}) || {})[w] || {};
+      imm.rec = { w, hi: +s.hi || 0, u0: +s.u0 || 0, dirty: false };
+    }
+    return imm.rec;
+  }
+  function immSave() {
+    const r = imm.rec;
+    if (!r || !r.dirty) return;
+    r.dirty = false;
+    const all = LS.get('immH', {}) || {};
+    all[r.w] = { hi: r.hi, u0: r.u0 };
+    LS.set('immH', all);
+  }
+  // ¿la barra está encogida del todo? (solo se sabe si ya se ha visto encogerse en este teléfono)
+  const immFull = () => { const r = immRec(); return !!r.hi && window.innerHeight >= r.hi - 8; };
+  function immSettleSoon() {
+    clearTimeout(imm.setT);
+    imm.setT = setTimeout(immSettle, 260);
+  }
+  // Con el dedo levantado y el alto quieto: ¿se ha escondido la barra?
+  function immSettle() {
+    if (!imm.on || imm.paused || !imm.armed || !immNew()) return;
+    if (imm.touch && performance.now() - imm.touchT < 6000) return; // el dedo sigue en la pantalla: se decide al levantarlo
+    const r = immRec();
+    const ih = window.innerHeight;
+    const grew = ih - (imm.ih0 || ih);
+    // (la barra puede terminar de encogerse un poco después de que el gesto se diera por corto: vale durante 3 s)
+    if (grew >= 24 && (imm.moved || performance.now() - imm.mvT < 3000)) {
+      // la página ha subido y el alto ha crecido: la barra se ha encogido
+      if (r.hi && ih < r.hi - 8) {
+        // …pero menos que otras veces. Si se queda dos veces seguidas en el mismo alto, ese es el bueno
+        // (Safari ha cambiado de barra); si no, sigue armado para que el siguiente gesto termine de esconderla.
+        const same = imm.part && Math.abs(imm.part.h - ih) <= 4;
+        imm.part = { h: ih, n: same ? imm.part.n + 1 : 1 };
+        if (imm.part.n < 2) { imm.moved = false; imm.y0 = window.scrollY; imm.ih0 = ih; immLog('a medias'); return; }
+        r.hi = ih; r.dirty = true;
+      } else if (ih > r.hi) { r.hi = ih; r.dirty = true; }
+      imm.part = null;
+      immSave();
+      immLock();
+    } else if (immFull()) {
+      immLock(); // ya estaba escondida (al volver a Safari, al girar…)
+    } else if (imm.moved) {
+      if (!r.hi) immLock(); // a ciegas, como antes: la página ha subido
+      else { imm.moved = false; imm.y0 = window.scrollY; immLog('sigue'); } // gesto corto: la barra no se ha movido
+    }
   }
   function immArm(why) {
     if (!imm.on || imm.paused) return;
@@ -1465,6 +1557,9 @@
     if (window.scrollY > 36000) window.scrollTo(0, 0);
     imm.y0 = window.scrollY;
     imm.h = 0;
+    imm.moved = false;
+    imm.ih0 = window.innerHeight;
+    if (immNew()) immSettleSoon(); // por si la barra ya está escondida
     if (imm.armed) return;
     imm.armed = true;
     root.classList.add('imm-armed');
@@ -1473,14 +1568,23 @@
   function immLock() {
     imm.h = 0; // la medida anterior ya no vale hasta volver a medir
     imm.armed = false;
+    imm.moved = false;
     root.classList.remove('imm-armed');
     immLog('bloquear');
-    // cuando la barra termina de encogerse, apuntar cómo queda la pantalla para notar si vuelve a crecer
     clearTimeout(imm.lockT);
+    clearTimeout(imm.setT);
+    // diseño nuevo: se bloquea con el alto ya quieto, así que la medida es la de ahora
+    if (immNew()) { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); return; }
+    // cuando la barra termina de encogerse, apuntar cómo queda la pantalla para notar si vuelve a crecer
     imm.lockT = setTimeout(() => { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); immLog('medido'); }, 700);
   }
   // ¿Ha vuelto a salir la barra? (la pantalla útil se encoge o crece el margen inferior)
   function immCheck() {
+    if (imm.on && imm.armed && !imm.paused && immNew()) {
+      // armado: apuntar el alto más pequeño desde que se armó y volver a mirar cuando deje de moverse
+      if (window.innerHeight < imm.ih0) imm.ih0 = window.innerHeight;
+      immSettleSoon();
+    }
     if (!imm.on || imm.armed || !imm.h) return;
     if (window.innerWidth !== imm.w) { immArm('giro'); return; }
     if (window.innerHeight < imm.h - 24 || immSab() > imm.sab + 8) immArm('barra');
@@ -1501,6 +1605,8 @@
   };
   const immStart = (e) => {
     immT = null;
+    imm.touch = e.touches.length;
+    imm.touchT = performance.now();
     if (!imm.on || e.touches.length !== 1) return;
     const t = e.touches[0];
     const own = !!(e.target.closest && (e.target.closest('.feed') || e.target.closest('.controls')));
@@ -1518,13 +1624,24 @@
     q.dec = true;
     if (dy > 0 && dy >= Math.abs(dx) && !q.sc) { q.block = true; if (e.cancelable) e.preventDefault(); }
   };
+  const immEnd = (e) => {
+    imm.touch = e.touches.length;
+    if (!imm.touch && imm.on && imm.armed && immNew()) immSettleSoon();
+  };
   // Con el teclado abierto Safari mueve la página a su aire: se deja fija hasta que se cierra.
   function immPause(p) {
     if (!imm.on || imm.paused === p) return;
     imm.paused = p;
     document.documentElement.classList.toggle('sx-imm', !p);
     immLog(p ? 'teclado' : 'sin teclado');
-    if (p) { clearTimeout(imm.lockT); imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; } else immArm('teclado');
+    if (p) { clearTimeout(imm.lockT); clearTimeout(imm.setT); imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; } else immArm('teclado');
+  }
+  // 2.1.2 — El teclado ya no está, pero puede que nadie se haya enterado (ver buildShell): la página a su sitio y el
+  // modo de la barra otra vez en marcha. Se llama al tocar, al cambiar el alto visible y al cambiar de pantalla.
+  function kbSync() {
+    if (!isOpen || typing()) return;
+    if ((!imm.on || imm.paused) && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+    if (imm.paused) immPause(false);
   }
   function immApply() {
     if (!root) return;
@@ -1534,22 +1651,30 @@
     if (want === imm.on) return;
     imm.paused = false;
     imm.on = want;
+    requestAnimationFrame(layoutCards); // la portada se mide distinto con este modo (diseño nuevo)
     if (want) {
       imm.t0 = performance.now();
       imm.log = [];
       imm.armed = false;
       imm.h = 0;
+      imm.touch = 0;
+      imm.part = null;
       app.addEventListener('touchstart', immStart, { capture: true, passive: true });
       app.addEventListener('touchmove', immMove, { capture: true, passive: false });
+      app.addEventListener('touchend', immEnd, { capture: true, passive: true });
+      app.addEventListener('touchcancel', immEnd, { capture: true, passive: true });
       immArm('abrir');
       const k = LS.get('immHint', 0);
       if (k < 3) { LS.set('immHint', k + 1); setTimeout(() => { if (imm.on && imm.armed) toast('Desliza hacia arriba para esconder la barra de Safari'); }, 1500); }
     } else {
       clearTimeout(imm.lockT);
+      clearTimeout(imm.setT);
       imm.armed = false;
       root.classList.remove('imm-armed');
       app.removeEventListener('touchstart', immStart, { capture: true });
       app.removeEventListener('touchmove', immMove, { capture: true });
+      app.removeEventListener('touchend', immEnd, { capture: true });
+      app.removeEventListener('touchcancel', immEnd, { capture: true });
       window.scrollTo(0, 0);
     }
   }
@@ -1558,14 +1683,18 @@
       if (!imm.on || imm.paused) return;
       const y = window.scrollY;
       if (y < imm.y0) imm.y0 = y;
-      else if (imm.armed && y - imm.y0 >= 24) immLock();
+      else if (imm.armed && y - imm.y0 >= 24) {
+        if (!immNew()) immLock();
+        // diseño nuevo: aquí solo se apunta que la página ha subido; se decide con el dedo levantado (immSettle)
+        else if (!imm.moved) { imm.moved = true; imm.mvT = performance.now(); immSettleSoon(); }
+      }
     }, { passive: true });
     window.addEventListener('resize', immCheck);
     window.addEventListener('orientationchange', () => immArm('giro'));
     const back = () => { if (!document.hidden) immArm('volver'); };
     document.addEventListener('visibilitychange', back);
     window.addEventListener('pageshow', back);
-    try { if (window.visualViewport) window.visualViewport.addEventListener('resize', immCheck); } catch (e) {}
+    try { if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { immCheck(); kbSync(); }); } catch (e) {}
     try {
       const ro = new ResizeObserver(immCheck);
       ro.observe(app);
@@ -1775,7 +1904,8 @@
         if (ay > ax * 1.3) g.mode = g.dy > 0 ? 'y' : 'n';
         else g.mode = g.manual ? 'x' : 'n'; // horizontal dentro del feed: lo hace el scroll nativo
         // hacia arriba con el feed bloqueado: por si la barra ha vuelto sin que se note, el siguiente gesto ya la esconde
-        if (g.mode === 'n' && ay > ax * 1.3 && imm.on && !imm.armed && g.inFeed) immArm('gesto');
+        // (2.1.2, diseño nuevo: si se sabe que la barra está escondida del todo, no: ese era el fallo del bloqueo)
+        if (g.mode === 'n' && ay > ax * 1.3 && imm.on && !imm.armed && g.inFeed && !(immNew() && immFull())) immArm('gesto');
         if (g.mode === 'n') return;
       }
       if (e.cancelable) e.preventDefault();
@@ -2447,6 +2577,17 @@
     root.style.removeProperty('--ih');
     let land = false;
     try { land = matchMedia('(orientation:landscape) and (max-height:500px)').matches; } catch (e) {}
+    // 2.1.2 (diseño nuevo + barra de Safari): la portada se mide con la barra grande y no cambia cuando se esconde.
+    // `extra` = lo que ha crecido el alto útil respecto al más pequeño que se ha visto con este ancho.
+    const fix = immNew() && imm.on && !land;
+    root.classList.toggle('cvfix', fix);
+    let extra = 0;
+    if (fix) {
+      const U = app.clientHeight - immSab();
+      const r = immRec();
+      if (U > 0 && !imm.paused && !typing() && (!r.u0 || U < r.u0)) { r.u0 = U; r.dirty = true; immSave(); }
+      extra = Math.max(0, U - (r.u0 || U));
+    }
     if (land) {
       // en horizontal la portada va al lado del texto: tan alta como el hueco que queda
       root.style.setProperty('--cv', Math.floor(Math.max(64, Math.min(mid.clientHeight, 220))) + 'px');
@@ -2460,7 +2601,8 @@
     ttl.style.minHeight = '';
     info.style.height = '';
     root.style.setProperty('--ih', ih + 'px');
-    const avail = mid.clientHeight - ih - 18;
+    const midH = mid.clientHeight - extra;
+    const avail = midH - ih - 18;
     // A la derecha de la portada va la columna de enlaces (50 px + separación). La portada sigue centrada mientras
     // quepa; si no, se corre a la izquierda lo justo, y como mucho llega a tocar el margen izquierdo.
     const W = feedEl.clientWidth - 40;
@@ -2469,6 +2611,7 @@
     const free = (W - cv) / 2;
     root.style.setProperty('--cv', cv + 'px');
     root.style.setProperty('--cvs', (free < COL ? -Math.round(COL - free) : 0) + 'px');
+    root.style.setProperty('--mpt', (fix ? Math.max(0, Math.floor((midH - cv - 18 - ih) / 2)) : 0) + 'px');
   }
   function siteMsg(s) {
     let m = s.msg || '';
@@ -3963,6 +4106,7 @@
       pgStack.push({ id, arg, scroll: 0 });
       try { history.pushState({ sx: stack.length - 1, pg: pgStack.length - 1 }, '', location.href); } catch (e) {}
     }
+    pgNote('abrir');
     pgRender();
   }
   function pgPop(to) {
@@ -3979,15 +4123,19 @@
     pgPop(pgStack.length - 2);
   }
   function pgClose() {
-    if (!pgStack.length) return;
+    const had = pgStack.length > 0;
     pgStack = [];
     fdraft = null;
     if (!pgEl) return;
+    // 2.1.2: aunque no hubiera capas apuntadas, que la pantalla no se quede puesta (y vacía) encima de todo
+    if (!had && !pgEl.classList.contains('on')) return;
+    pgNote('cerrar');
     try { const a = pgEl.getRootNode().activeElement; if (a && pgEl.contains(a)) a.blur(); } catch (e) {}
     pgEl.classList.remove('on');
     paintOver();
     paintTabs();
     paintProgress();
+    kbSync();
   }
   // `keep`: se repinta la misma pantalla tras un cambio (no se mueve el scroll); si no, se entra o se vuelve a ella.
   function pgRender(keep) {
@@ -3996,18 +4144,32 @@
     const body = $('.pgb', pgEl);
     const foot = $('.pgf', pgEl);
     const y = keep ? body.scrollTop : top.scroll || 0;
+    // 2.1.2: al cambiar de pantalla, soltar el campo en el que se escribía ANTES de quitarlo. Si se quita con el foco
+    // puesto, Safari no avisa de que el teclado se ha ido: la página se quedaba desplazada (pantalla en negro) y el
+    // modo de la barra en pausa hasta el siguiente teclado.
+    if (!keep) { try { const a = shadow && shadow.activeElement; if (a && pgEl.contains(a)) a.blur(); } catch (e) {} }
     body.textContent = '';
     foot.textContent = '';
     pgEl.dataset.id = top.id;
     pgEl.classList.toggle('sub', pgStack.length > 1);
     pgEl.classList.add('on');
-    const title = PAGES[top.id](body, foot, top.arg);
+    let title = '';
+    try {
+      title = PAGES[top.id](body, foot, top.arg);
+    } catch (e) {
+      // que un fallo al pintar no deje la pantalla vacía: se dice, se apunta para el diagnóstico y el error sigue su camino
+      pgNote('error: ' + short(String((e && e.message) || e), 70));
+      body.innerHTML = '<div class="note">No se ha podido abrir esta pantalla. Vuelve atrás y prueba otra vez; si se repite, manda el diagnóstico.</div>';
+      title = 'Ajustes';
+      setTimeout(() => { throw e; }, 0);
+    }
     if (pgStack[pgStack.length - 1] !== top) return; // la pantalla ha decidido irse (no había nada que enseñar)
     $('h2', pgEl).textContent = title || '';
     paintOver();
     paintTabs();
     paintProgress();
     body.scrollTop = y;
+    kbSync();
   }
   // Fila que entra en otra pantalla (o hace algo): título, valor actual debajo y › a la derecha.
   const pgRow = (o) => {
@@ -4109,10 +4271,6 @@
       add('<div class="sec">App</div>');
       add(pgRow({ cls: 'r-diag', icon: 'more', label: 'Diagnóstico', val: 'Para Claude', go: false, fn: diagnostics }));
       if (loader()) add(pgRow({ cls: 'r-upd', icon: 'fwd', label: 'Buscar actualización', val: 'Versión ' + VERSION, go: false, fn: checkUpdate }));
-      add(pgRow({
-        cls: 'r-heard', icon: 'back', label: 'Olvidar escuchadas', val: heard.size + (heard.size === 1 ? ' canción' : ' canciones'), go: false, disabled: !heard.size,
-        fn: () => actionSheet('Olvidar escuchadas', 'Las ' + heard.size + ' canciones volverán a salir como sin escuchar.', '', [{ label: 'Olvidarlas', icon: 'back', pri: true, fn: () => { forgetHeard(); pgRender(true); } }]),
-      }));
       add(pgRow({ cls: 'r-web', icon: 'ext', label: 'Ver la web original', go: false, fn: () => { pgClose(); closeApp(); } }));
       add(`<div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`);
       return 'Ajustes';
@@ -4371,18 +4529,10 @@
           rebuild(current || deck[activeIdx]);
         }
         if (p === 'preload' && !prefs.preload) dropPreloads();
-        if (p === 'immersive') { LS.set('immHint', 0); immApply(); }
+        if (p === 'immersive') { LS.set('immHint', 0); LS.set('immH', {}); imm.rec = null; immApply(); }
         if (p === 'ui2') applyUi();
       });
     });
-  }
-  function forgetHeard() {
-    heard.clear();
-    LS.set('heard', []);
-    setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
-    setForced(new Set());
-    rebuild(current || deck[activeIdx]);
-    toast('Historial de escuchadas borrado');
   }
   function goStart() {
     closeSheets();
@@ -4443,7 +4593,6 @@
       <div class="sec">Más</div>
       <button class="opt gomenu">${i('menu')}<span>Secciones de Soundeo</span></button>
       <button class="opt goweb">${i('ext')}<span>Ver la web original</span></button>
-      <button class="opt rsheard">${i('back')}<span>Olvidar escuchadas</span><small>${heard.size}</small></button>
       ${loader() ? `<button class="opt oupd">${i('fwd')}<span>Buscar actualización</span><small>v${VERSION}</small></button>` : ''}
       <button class="opt diag">${i('more')}<span>Diagnóstico (para Claude)</span></button>
       <div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
@@ -4533,7 +4682,6 @@
     $$('.sv button', b).forEach((x) => x.addEventListener('click', () => { prefs.startView = x.dataset.v; savePrefs(); paintSv(); }));
     $('.gomenu', b).addEventListener('click', openMenu);
     $('.goweb', b).addEventListener('click', () => { closeSheets(); closeApp(); });
-    $('.rsheard', b).addEventListener('click', () => { forgetHeard(); closeSheets(); });
     $('.diag', b).addEventListener('click', diagnostics);
     const ou = $('.oupd', b);
     if (ou) ou.addEventListener('click', () => { closeSheets(); checkUpdate(); });
@@ -4611,6 +4759,10 @@
         imm: !!prefs.immersive, ui2: !!prefs.ui2, pg: pgStack.map((x) => x.id), on: imm.on, armed: imm.armed, y: Math.round(window.scrollY), ih: window.innerHeight, iw: window.innerWidth,
         vv: window.visualViewport ? Math.round(window.visualViewport.height) : null, sh: screen.height, sw: screen.width, sab: immSab(),
         measured: imm.h ? { h: imm.h, w: imm.w, sab: imm.sab } : null, log: imm.log,
+        // 2.1.2: lo apuntado de la barra, el teclado y el paso por las pantallas de Ajustes
+        rec: (() => { const r = immRec(); return { w: r.w, hi: r.hi, u0: r.u0 }; })(), full: immFull(), moved: imm.moved, ih0: imm.ih0, touch: imm.touch, paused: imm.paused, typing: typing(),
+        svh: (() => { const p = $('.psv', root); return p ? p.offsetHeight : null; })(), lvh: (() => { const p = $('.plv', root); return p ? p.offsetHeight : null; })(),
+        cv: root.style.getPropertyValue('--cv'), cvfix: root.classList.contains('cvfix'), sr: (() => { try { return history.scrollRestoration; } catch (e) { return null; } })(), nav: pgLog,
       },
       // 2.1: ajustes nuevos, y qué valores de «tipo de track» ofrece la web de verdad (el filtro usa los de una página guardada)
       look: { skipBack: skipBack(), skipFwd: skipFwd(), keyFmt: prefs.keyFmt || 'both', dense: !!prefs.dense, big: !!prefs.bigText, saved: savedFilters.length },
