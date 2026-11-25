@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.0';
+  const VERSION = '2.1.1';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -1746,6 +1746,9 @@
   function setupGestures() {
     const EDGE = 20;
     let g = null;
+    // 2.1.1: con el diseño nuevo, deslizar hacia abajo en el feed ya no lleva a la lista (para eso está su pestaña):
+    // se confundía con el gesto de la barra de Safari. Con el diseño de siempre sigue como estaba.
+    const downToList = () => !prefs.ui2;
     const start = (e) => {
       g = null;
       scrollLock = null; // el dedo manda sobre cualquier desplazamiento en curso
@@ -1777,14 +1780,14 @@
       }
       if (e.cancelable) e.preventDefault();
       // hacia abajo: en cuanto el dedo baja lo suficiente, a la lista (sin animaciones)
-      if (g.mode === 'y' && g.dy > 64) { g.mode = 'done'; setView('list'); }
+      if (g.mode === 'y' && g.dy > 64 && downToList()) { g.mode = 'done'; setView('list'); }
     };
     const end = (e) => {
       const q = g;
       g = null;
       if (!q || !q.mode || q.mode === 'n') return;
       if (e.cancelable) e.preventDefault(); // que no cuente como toque en un botón
-      if (q.mode === 'y' && e.type === 'touchend' && q.dy > 36) setView('list');
+      if (q.mode === 'y') { if (e.type === 'touchend' && q.dy > 36 && downToList()) setView('list'); }
       else if (q.mode === 'x' && e.type === 'touchend' && Math.abs(q.dx) > 45) step(q.dx < 0 ? 1 : -1, false);
     };
     [feedEl, ctrlEl].forEach((n) => {
