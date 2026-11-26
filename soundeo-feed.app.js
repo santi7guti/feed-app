@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.2';
+  const VERSION = '2.1.3';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -896,6 +896,8 @@
   .bar .fill{position:absolute;left:0;top:13px;height:4px;border-radius:4px;background:#fff;width:0;}
   .bar .buf{position:absolute;left:0;top:13px;height:4px;border-radius:4px;background:rgba(255,255,255,.25);width:0;}
   .bar .knob{position:absolute;top:8px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:#fff;left:0;box-shadow:0 1px 4px rgba(0,0,0,.4);}
+  /* 2.1.3 (diseño nuevo): la barra de avance del feed responde en una franja más alta (48 px en vez de 30) */
+  .root.ui2 .controls .bar::after{content:"";position:absolute;left:-4px;right:-4px;top:-9px;bottom:-9px;}
   .btns{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 0;}
   .cb{width:52px;height:52px;display:grid;place-items:center;border-radius:50%;}
   .cb i{width:30px;height:30px;display:block;}
@@ -1216,6 +1218,7 @@
   let fdraft = null; // filtros que se están tocando en Ajustes: { mode: 'start' | 'cur', f, src }
   let searchKeep = null; // la última búsqueda hecha: la pestaña Buscar vuelve a ella sin pedirla otra vez
   let backWant = null; // hasta qué profundidad tiene que bajar el paso atrás que ha pedido el botón ‹
+  let navJump = false; // 2.1.3: el paso del historial lo ha pedido la propia app (mini reproductor → otra lista)
   // 2.1.2
   let shadow = null; // la raíz de sombra de la app
   let srWas = null; // cómo tenía la página lo de recolocarse al ir atrás (se devuelve al cerrar la app)
@@ -1351,7 +1354,13 @@
 
     // eventos fijos
     $$('.seg button', sr).forEach((b) => b.addEventListener('click', () => setView(b.dataset.v)));
-    $('.bnav', sr).addEventListener('click', () => (stack.length > 1 ? goBack() : openMenu()));
+    $('.bnav', sr).addEventListener('click', () => {
+      // 2.1.3 (diseño nuevo): desde el feed de una lista a la que se ha entrado (artista, sello, búsqueda…), ‹ vuelve
+      // primero a esa lista, sin cambiar de canción. Antes volvía a la lista anterior y abría su feed: cambiaba la canción.
+      if (stack.length > 1 && prefs.ui2 && view === 'feed') { setView('list'); return; }
+      if (stack.length > 1) goBack();
+      else openMenu();
+    });
     $('.bsearch', sr).addEventListener('click', () => openSearch());
     $('.bset', sr).addEventListener('click', () => settingsGo());
     $('.srcp', sr).addEventListener('click', () => openMenu());
@@ -1436,9 +1445,18 @@
         pgPop(Math.max(0, Math.min(pgStack.length - 2, p)));
         return;
       }
+      const jump = navJump;
+      navJump = false;
       let d = e.state && typeof e.state.sx === 'number' ? e.state.sx : 0;
       // con ‹ siempre se baja un nivel, aunque el paso del historial caiga en una entrada de la misma profundidad
       if (want != null) d = Math.min(d, want);
+      // 2.1.3 (diseño nuevo): el gesto atrás de Safari hace lo mismo que ‹ en el feed de una lista a la que se ha
+      // entrado: va a su lista. El paso del historial se repone, para que el siguiente gesto vuelva a la lista anterior.
+      if (d < stack.length - 1 && prefs.ui2 && view === 'feed' && want == null && !jump && !overOn()) {
+        setView('list');
+        try { history.pushState({ sx: stack.length - 1 }, '', location.href); } catch (err) {}
+        return;
+      }
       if (d < stack.length - 1) popTo(d);
     });
   }
@@ -1522,12 +1540,21 @@
     clearTimeout(imm.setT);
     imm.setT = setTimeout(immSettle, 260);
   }
-  // Con el dedo levantado y el alto quieto: ¿se ha escondido la barra?
+  // Con el alto quieto: ¿se ha escondido la barra?
+  // 2.1.3: si ya se sabe el alto con la barra escondida y se ha llegado a él, se bloquea al momento, con el dedo en la
+  // pantalla o no (en la 2.1.2 se esperaba a levantarlo, y si Safari no avisaba no se bloqueaba hasta el siguiente toque).
+  // Lo demás (primera vez, barra a medias, gesto corto) se sigue decidiendo con el dedo levantado.
   function immSettle() {
     if (!imm.on || imm.paused || !imm.armed || !immNew()) return;
-    if (imm.touch && performance.now() - imm.touchT < 6000) return; // el dedo sigue en la pantalla: se decide al levantarlo
     const r = immRec();
     const ih = window.innerHeight;
+    if (r.hi && ih >= r.hi - 8) {
+      if (ih > r.hi) { r.hi = ih; r.dirty = true; immSave(); }
+      imm.part = null;
+      immLock();
+      return;
+    }
+    if (imm.touch && performance.now() - imm.touchT < 6000) return; // a medio camino con el dedo puesto: se espera
     const grew = ih - (imm.ih0 || ih);
     // (la barra puede terminar de encogerse un poco después de que el gesto se diera por corto: vale durante 3 s)
     if (grew >= 24 && (imm.moved || performance.now() - imm.mvT < 3000)) {
@@ -1564,6 +1591,7 @@
     imm.armed = true;
     root.classList.add('imm-armed');
     immLog('armar:' + why);
+    if (immNew()) layoutSwap(); // 2.1.3: la portada vuelve a su tamaño con la barra, de una vez
   }
   function immLock() {
     imm.h = 0; // la medida anterior ya no vale hasta volver a medir
@@ -1574,7 +1602,7 @@
     clearTimeout(imm.lockT);
     clearTimeout(imm.setT);
     // diseño nuevo: se bloquea con el alto ya quieto, así que la medida es la de ahora
-    if (immNew()) { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); return; }
+    if (immNew()) { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); layoutSwap(); return; }
     // cuando la barra termina de encogerse, apuntar cómo queda la pantalla para notar si vuelve a crecer
     imm.lockT = setTimeout(() => { imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab(); immLog('medido'); }, 700);
   }
@@ -1587,7 +1615,8 @@
     }
     if (!imm.on || imm.armed || !imm.h) return;
     if (window.innerWidth !== imm.w) { immArm('giro'); return; }
-    if (window.innerHeight < imm.h - 24 || immSab() > imm.sab + 8) immArm('barra');
+    // (diseño nuevo: se nota antes, para que la portada grande no llegue a pisar los mandos mientras sube la barra)
+    if (window.innerHeight < imm.h - (immNew() ? 10 : 24) || immSab() > imm.sab + 8) immArm('barra');
   }
   // Fuera del feed: si el gesto movería la página hacia abajo (dedo bajando) y no hay una lista que lo absorba, se impide.
   let immT = null;
@@ -1622,7 +1651,9 @@
     const dy = t.clientY - q.y;
     if (!dx && !dy) return;
     q.dec = true;
-    if (dy > 0 && dy >= Math.abs(dx) && !q.sc) { q.block = true; if (e.cancelable) e.preventDefault(); }
+    const vert = Math.abs(dy) >= Math.abs(dx);
+    // 2.1.3 (diseño nuevo): con la barra escondida del todo, nada vertical llega a la página, ni hacia arriba
+    if (!q.sc && vert && (dy > 0 || (immNew() && !imm.armed && immFull()))) { q.block = true; if (e.cancelable) e.preventDefault(); }
   };
   const immEnd = (e) => {
     imm.touch = e.touches.length;
@@ -1840,7 +1871,7 @@
       s.view = 'feed';
       s.forced.add(current.id);
       try {
-        if (history.state && history.state.sx === stack.length - 1) { history.go(d - (stack.length - 1)); return; }
+        if (history.state && history.state.sx === stack.length - 1) { navJump = true; history.go(d - (stack.length - 1)); return; }
       } catch (e) {}
       popTo(d);
       return;
@@ -1891,6 +1922,7 @@
       if (edge && e.cancelable) e.preventDefault();
     };
     const move = (e) => {
+      if (g && g.stopY && e.cancelable) e.preventDefault();
       if (!g || g.mode === 'n') return;
       const t = e.touches[0];
       g.dx = t.clientX - g.x;
@@ -1900,6 +1932,10 @@
         const ay = Math.abs(g.dy);
         // modo inmersivo: un dedo que baja movería la página hacia abajo y Safari volvería a sacar su barra
         if (imm.on && (imm.armed || !g.inFeed) && g.dy > 0 && ay >= ax) { g.manual = true; if (e.cancelable) e.preventDefault(); }
+        // 2.1.3 (diseño nuevo): con el feed bloqueado, un deslizamiento vertical no llega a la página desde los primeros
+        // píxeles (antes se cortaba a los 10 y solo hacia abajo; con la barra escondida del todo, también hacia arriba).
+        // A los lados sigue siendo el scroll del feed.
+        if (immNew() && imm.on && !imm.armed && ay >= 3 && ay > ax && (g.dy > 0 || immFull())) { g.stopY = true; if (e.cancelable) e.preventDefault(); }
         if (ax < 10 && ay < 10) return;
         if (ay > ax * 1.3) g.mode = g.dy > 0 ? 'y' : 'n';
         else g.mode = g.manual ? 'x' : 'n'; // horizontal dentro del feed: lo hace el scroll nativo
@@ -1918,7 +1954,9 @@
       if (!q || !q.mode || q.mode === 'n') return;
       if (e.cancelable) e.preventDefault(); // que no cuente como toque en un botón
       if (q.mode === 'y') { if (e.type === 'touchend' && q.dy > 36 && downToList()) setView('list'); }
-      else if (q.mode === 'x' && e.type === 'touchend' && Math.abs(q.dx) > 45) step(q.dx < 0 ? 1 : -1, false);
+      // a los lados: en el borde del feed pasa de canción. En los mandos, con el diseño nuevo, ya no: quien intentaba
+      // mover la barra de avance y empezaba un poco fuera de ella cambiaba de canción sin querer (2.1.3)
+      else if (q.mode === 'x' && e.type === 'touchend' && Math.abs(q.dx) > 45 && (q.inFeed || !prefs.ui2)) step(q.dx < 0 ? 1 : -1, false);
     };
     [feedEl, ctrlEl].forEach((n) => {
       n.addEventListener('touchstart', start, { passive: false });
@@ -2104,7 +2142,11 @@
     stash();
     stack.length = depth + 1;
     const s = stack[depth];
-    if (s.view) switchView(s.view);
+    let v = s.view;
+    // 2.1.3 (diseño nuevo): volver a una lista no cambia lo que suena. Si en su feed se vería otra canción (en el feed
+    // suena lo que se ve), se abre en vista lista.
+    if (prefs.ui2 && v === 'feed' && current && s.at !== current.id) v = 'list';
+    if (v) switchView(v);
     if (!s.loaded) ensureLoaded(s);
     adopt(s);
   }
@@ -2577,8 +2619,10 @@
     root.style.removeProperty('--ih');
     let land = false;
     try { land = matchMedia('(orientation:landscape) and (max-height:500px)').matches; } catch (e) {}
-    // 2.1.2 (diseño nuevo + barra de Safari): la portada se mide con la barra grande y no cambia cuando se esconde.
-    // `extra` = lo que ha crecido el alto útil respecto al más pequeño que se ha visto con este ancho.
+    // Diseño nuevo + barra de Safari: dos tamaños. Mientras la barra se ve o se está moviendo (armado), la portada se
+    // mide con la barra grande y no se mueve (2.1.2); `extra` = lo que ha crecido el alto útil respecto al más pequeño
+    // que se ha visto con este ancho. Bloqueado (barra escondida), con todo el alto: la portada llena el hueco (2.1.3).
+    // El cambio entre uno y otro lo anima layoutSwap.
     const fix = immNew() && imm.on && !land;
     root.classList.toggle('cvfix', fix);
     let extra = 0;
@@ -2586,7 +2630,7 @@
       const U = app.clientHeight - immSab();
       const r = immRec();
       if (U > 0 && !imm.paused && !typing() && (!r.u0 || U < r.u0)) { r.u0 = U; r.dirty = true; immSave(); }
-      extra = Math.max(0, U - (r.u0 || U));
+      if (imm.armed || imm.paused) extra = Math.max(0, U - (r.u0 || U));
     }
     if (land) {
       // en horizontal la portada va al lado del texto: tan alta como el hueco que queda
@@ -2612,6 +2656,29 @@
     root.style.setProperty('--cv', cv + 'px');
     root.style.setProperty('--cvs', (free < COL ? -Math.round(COL - free) : 0) + 'px');
     root.style.setProperty('--mpt', (fix ? Math.max(0, Math.floor((midH - cv - 18 - ih) / 2)) : 0) + 'px');
+  }
+  // 2.1.3 — Al bloquear o rearmar con la barra de Safari, la portada y el texto pasan a su sitio nuevo una sola vez,
+  // con una animación corta (transform, la hace la tarjeta gráfica). Solo la tarjeta que se ve.
+  function layoutSwap() {
+    if (!isOpen || !feedEl || view !== 'feed' || overOn()) { layoutCards(); return; }
+    const c = feedEl.children[activeIdx];
+    const els = c && !c.classList.contains('ph') ? ['.cvw', '.opens', '.info'].map((q) => $(q, c)) : [];
+    const a = els.map((el) => (el ? el.getBoundingClientRect() : null));
+    layoutCards();
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) {}
+    els.forEach((el, k) => {
+      if (!el || !a[k] || !el.animate) return;
+      const b = el.getBoundingClientRect();
+      const dx = a[k].left - b.left;
+      const dy = a[k].top - b.top;
+      const sc = k === 0 && b.width ? a[k].width / b.width : 1;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sc - 1) < 0.01) return;
+      const base = k === 1 ? ' translateY(-50%)' : ''; // .opens ya va centrada con un transform
+      if (k === 0) el.style.transformOrigin = '0 0';
+      try {
+        el.animate([{ transform: `translate(${dx}px,${dy}px) scale(${sc})${base}` }, { transform: `translate(0px,0px) scale(1)${base}` }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      } catch (e) {}
+    });
   }
   function siteMsg(s) {
     let m = s.msg || '';
