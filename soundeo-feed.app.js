@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.5';
+  const VERSION = '2.1.6';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -66,8 +66,9 @@
     dense: false, // lista compacta
     bigText: false, // letra grande
     // 2.1.5 (en pruebas, diseño nuevo + barra de Safari): cómo se sujeta la pantalla completa recién escondida la barra.
-    // 'old' = como la 2.1.4; 'a' = se para el dedo que empieza mientras la página sigue deslizándose sola (inercia);
-    // 'b' = lo mismo y, además, la página de debajo queda quieta (overflow:hidden) mientras la barra está escondida
+    // 'old' = como la 2.1.4; 'a' (2.1.6) = al esconderse la barra se para la inercia de la página (immBrake);
+    // 'b' (2.1.6) = el feed se traga el gesto que haría volver la barra (CSS .shield). Son dos remedios distintos a
+    // propósito: probándolos por separado en el iPhone se sabe cuál funciona
     immLock: 'a',
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
@@ -768,7 +769,6 @@
     html.sx-open.sx-imm{overflow-x:hidden!important;overflow-y:scroll!important;height:auto!important;scrollbar-width:none!important;}
     html.sx-open.sx-imm::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
     html.sx-open.sx-imm body{overflow:visible!important;height:auto!important;min-height:calc(100vh + 60000px)!important;}
-    html.sx-open.sx-imm.sx-immhold{overflow-y:hidden!important;}
     html.sx-open body>*:not(#sx-host):not(.ui-dialog):not(.ui-widget-overlay):not(.ui-autocomplete){display:none!important;}
     html.sx-open .ui-widget-overlay{position:fixed!important;inset:0!important;z-index:2147483600!important;}
     html.sx-open .ui-dialog{position:fixed!important;z-index:2147483601!important;top:50%!important;left:50%!important;transform:translate(-50%,-50%)!important;max-width:92vw!important;}
@@ -819,6 +819,23 @@
   .root.ui2.imm:not(.imm-armed) .tabs,.root.ui2.imm:not(.imm-armed) .tabs *{touch-action:none;}
   /* 2.1.2 (diseño nuevo + barra de Safari): la portada y el texto no se mueven cuando la barra se esconde; el hueco que se gana queda debajo */
   .root.cvfix .mid{justify-content:flex-start;padding-top:var(--mpt,0px);}
+  /* 2.1.6 (diseño nuevo + barra de Safari): la tarjeta se maqueta siempre con la barra escondida (portada grande) y, con la
+     barra a la vista, la portada, el texto y los enlaces se encogen y suben con una transformación (.cvsm). Pasar de un
+     tamaño a otro ya no re-maqueta nada: es una transición de transform, que hace la tarjeta gráfica */
+  .root.cvfix .cvw{transform-origin:0 0;will-change:transform;transition:transform .32s cubic-bezier(.2,.8,.2,1);}
+  .root.cvfix .info{will-change:transform;transition:transform .32s cubic-bezier(.2,.8,.2,1);}
+  .root.cvfix .opens{transform:translate(0px,0px) translateY(-50%);transition:transform .32s cubic-bezier(.2,.8,.2,1);}
+  .root.cvfix.cvsm .cvw{transform:translate(var(--kx,0px),var(--ky,0px)) scale(var(--ks,1));}
+  .root.cvfix.cvsm .info{transform:translateY(var(--iy,0px));}
+  .root.cvfix.cvsm .opens{transform:translate(0px,var(--oy,0px)) translateY(-50%);}
+  .root.cvfix.notr .cvw,.root.cvfix.notr .info,.root.cvfix.notr .opens{transition:none;}
+  @media (prefers-reduced-motion:reduce){.root.cvfix .cvw,.root.cvfix .info,.root.cvfix .opens{transition:none;}}
+  /* 2.1.6, modo B de «Sujetar la pantalla completa»: el feed se puede desplazar 2 px en vertical y se deja abajo del todo.
+     Un dedo que sube no puede moverlo (llega a la página: esconde la barra); uno que baja lo mueve a él y no a la página.
+     Con la barra escondida, además, nada vertical pasa a la página (overscroll-behavior) */
+  .root.ui2.imm.shield .feed{overflow-y:scroll;}
+  .root.ui2.imm.shield .feed::after{content:"";position:absolute;left:0;top:0;width:1px;height:calc(100% + 2px);pointer-events:none;}
+  .root.ui2.imm.shield:not(.imm-armed) .feed{overscroll-behavior:contain none;}
   .psv,.plv{position:absolute;left:0;top:0;width:1px;visibility:hidden;pointer-events:none;}
   .psv{height:100svh;}
   .plv{height:100lvh;}
@@ -969,6 +986,10 @@
   .mini .mb{width:40px;height:40px;display:grid;place-items:center;flex:none;}
   .mini .mb i{width:24px;height:24px;display:block;}
   .mini .mb.on{color:var(--gold);}
+  /* 2.1.6 (diseño nuevo): en el mini, «anterior» en lugar de la estrella (lo pidió Tiger) */
+  .mini .mb.mprev{display:none;}
+  .root.ui2 .mini .mb.mprev{display:grid;}
+  .root.ui2 .mini .mb.mfav{display:none;}
   /* barra para avanzar por la canción desde la lista (misma barra que la del feed, más baja) */
   .mseek{flex:0 0 100%;display:flex;align-items:center;gap:8px;height:28px;font-size:10.5px;font-weight:600;color:var(--mut);font-variant-numeric:tabular-nums;}
   .mseek span{width:30px;flex:none;}
@@ -1315,6 +1336,7 @@
             <img alt="">
             <div class="mm"><div class="mt"></div><div class="ma"></div></div>
             <button class="mb mfav" aria-label="Guardar">${i('star')}</button>
+            <button class="mb mprev" aria-label="Anterior">${i('prev')}</button>
             <button class="mb mplay" aria-label="Reproducir">${i('play')}</button>
             <button class="mb mnext" aria-label="Siguiente">${i('next')}</button>
             <button class="mb mexp" aria-label="Abrir en feed">${i('up')}</button>
@@ -1389,6 +1411,7 @@
     $('.f30', sr).addEventListener('click', () => seekBy(skipFwd()));
     $('.mplay', sr).addEventListener('click', togglePlay);
     $('.mnext', sr).addEventListener('click', () => step(1, true));
+    $('.mprev', sr).addEventListener('click', () => step(-1, true));
     $('.mexp', sr).addEventListener('click', showCurrentInFeed);
     $('.mfav', sr).addEventListener('click', () => current && toggleFav(current));
     $('.mm', sr).addEventListener('click', showCurrentInFeed);
@@ -1416,13 +1439,8 @@
       if (!isOpen || view !== 'feed') return;
       if (widthChanged()) { holdFeed(700); return; }
       clearTimeout(rzT);
-      const rz = () => {
-        // 2.1.5: si la portada está a mitad de su animación (layoutSwap), se espera a que acabe: medir en medio la movía de golpe
-        const w = imm.swapEnd - performance.now();
-        if (w > 0) { rzT = setTimeout(rz, w + 20); return; }
-        if (isOpen && view === 'feed' && performance.now() > holdUntil) layoutCards();
-      };
-      rzT = setTimeout(rz, 150);
+      // (2.1.6: cambiar la portada de tamaño ya no re-maqueta nada, así que medir aquí no la mueve a mitad de su animación)
+      rzT = setTimeout(() => { if (isOpen && view === 'feed' && performance.now() > holdUntil) layoutCards(); }, 150);
     });
     try {
       new ResizeObserver(() => { if (isOpen && view === 'feed' && widthChanged()) holdFeed(700); }).observe(feedEl);
@@ -1514,13 +1532,67 @@
   //   armado    = el feed deja pasar el gesto vertical a la página (la barra está grande o no se sabe)
   //   bloqueado = el feed vuelve a ser solo horizontal, como sin este modo (la barra ya está pequeña)
   const imm = { on: false, paused: false, armed: false, y0: 0, h: 0, w: 0, sab: 0, t0: 0, lockT: 0, log: [], touch: 0, touchT: 0, moved: false, mvT: 0, ih0: 0, setT: 0, rec: null, part: null,
-    scT: 0, lockY: 0, guard: 0, nc: 0, qT: 0, qLog: false, swapEnd: 0 };
+    scT: 0, lockY: 0, lockAt: 0, guard: 0, nc: 0, qT: 0, qLog: false,
+    brN: 0, brT: 0, brY: 0, brWait: false, brTm: 0, brakes: 0, tlog: 0, holdBig: false, holdT: 0, holdTm: 0, geoHi: -1 };
   const immSab = () => { const p = root && $('.sap', root); return p ? p.offsetHeight : 0; };
   function immLog(ev, more) {
     let vv = null;
     try { vv = window.visualViewport ? Math.round(window.visualViewport.height) : null; } catch (e) {}
     imm.log.push(Object.assign({ t: Math.round((performance.now() - imm.t0) / 100) / 10, ev, y: Math.round(window.scrollY), ih: window.innerHeight, vv, sab: immSab() }, more || {}));
-    if (imm.log.length > 30) imm.log.shift();
+    if (imm.log.length > 40) imm.log.shift();
+  }
+  // 2.1.6 — Diagnóstico del 26 nov (2.1.5, modo A): en los 10 bloqueos que se soltaron, la página no llegó a pararse entre el
+  // bloqueo y la vuelta de la barra (bajó otros 200–900 px por inercia), y el freno del dedo al tocar no saltó ni una vez
+  // (Safari no entrega a la página el toque que para una inercia). Así que ahora se para la inercia misma: en cuanto la
+  // barra está escondida y no hay dedo en la pantalla, un window.scrollTo (WebKit para cualquier desplazamiento en curso
+  // antes de moverse) un poco más abajo, que como mucho encoge más la barra. Si la página sigue moviéndose, se repite.
+  function immBrake(why) {
+    if (!imm.on || imm.armed || imm.paused || !immNew() || immMode() !== 'a' || imm.touch) return false;
+    // solo si la página se está moviendo (si no, no hay inercia que parar)
+    if (!immCoast()) return false;
+    const r = immRec();
+    // con la barra aún acabando de encogerse se espera a que termine (lo hace immCheck), con un tope de tiempo
+    if (r.hi && window.innerHeight < r.hi - 2 && why !== 'tiempo') {
+      imm.brWait = true;
+      clearTimeout(imm.brTm);
+      imm.brTm = setTimeout(() => { if (imm.brWait) { imm.brWait = false; immBrake('tiempo'); } }, 250);
+      return false;
+    }
+    imm.brWait = false;
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const y = Math.min(max, Math.round(window.scrollY) + 60);
+    imm.brN++;
+    imm.brakes++;
+    imm.brT = performance.now();
+    imm.brY = y;
+    try { window.scrollTo(0, y); } catch (e) {}
+    immLog('frenar', { w: why, n: imm.brN });
+    clearTimeout(imm.brTm);
+    // ¿sigue moviéndose sola? (algún scroll después del nuestro y lejos de donde la dejamos): otra vez, hasta 3
+    if (imm.brN < 3) imm.brTm = setTimeout(() => { if (!imm.armed && !imm.touch && imm.scT > imm.brT + 30 && Math.abs(window.scrollY - imm.brY) > 2) immBrake('sigue'); }, 110);
+    return true;
+  }
+  // 2.1.6 — Cambiar la portada entre sus dos tamaños es poner o quitar .cvsm (ver layoutCards). Con la barra volviendo
+  // (rearmado por 'barra'), la portada espera a que la barra haya vuelto de verdad (30 px) o 220 ms: si la barra se vuelve
+  // a esconder antes, la portada no se ha movido (antes encogía y crecía en cada intento).
+  function immPaint() {
+    if (!root) return;
+    let small = !!(imm.on && (imm.armed || imm.paused));
+    if (small && imm.holdBig) {
+      const r = immRec();
+      const far = !r.hi || window.innerHeight <= r.hi - 30;
+      if (!far && performance.now() - imm.holdT < 220) small = false;
+      else imm.holdBig = false;
+    }
+    root.classList.toggle('cvsm', small);
+  }
+  // cambia algo sin que las transiciones de la portada se animen (al entrar o salir del modo, al recalcular de golpe)
+  function noTr(fn) {
+    root.classList.add('notr');
+    try { fn(); } finally {
+      void root.offsetWidth;
+      requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('notr')));
+    }
   }
   // 2.1.5 — En el diagnóstico del 26 nov (2.1.4), tras cada bloqueo la página siguió deslizándose sola 50–350 px
   // (inercia del gesto que esconde la barra) y, si Tiger deslizaba otra vez en ese rato, la barra volvía (3 veces).
@@ -1528,7 +1600,6 @@
   // en touchmove). Dos formas de sujetarlo, para probarlas en el iPhone (Ajustes → Apariencia): ver DEFAULT_PREFS.immLock.
   const immMode = () => (prefs.immLock === 'old' || prefs.immLock === 'b' ? prefs.immLock : 'a');
   const immCoast = () => performance.now() - imm.scT < 120; // ¿la página se ha movido hace nada?
-  const immHold = (on) => document.documentElement.classList.toggle('sx-immhold', !!on);
   // 2.1.2 (solo con el diseño nuevo) — En el iPhone de Tiger (Safari 26.5) el alto visible SÍ cambia con la barra
   // (645 con la barra grande, 739 encogida), así que la app puede ver lo que ha pasado en vez de suponerlo:
   //   · mientras el dedo está en la pantalla no se toca nada; se decide al levantarlo y cuando el alto deja de moverse;
@@ -1602,7 +1673,6 @@
   }
   function immArm(why) {
     if (!imm.on || imm.paused) return;
-    immHold(false);
     clearTimeout(imm.lockT);
     // de paso, volver al principio del recorrido si se está acabando (la barra está grande: no molesta)
     if (window.scrollY > 36000) window.scrollTo(0, 0);
@@ -1614,29 +1684,43 @@
     if (imm.armed) return;
     imm.armed = true;
     root.classList.add('imm-armed');
+    clearTimeout(imm.brTm);
+    imm.brWait = false;
     // 2.1.5: cuánto se ha movido la página desde el bloqueo (negativo = ha subido, que es lo que trae la barra)
-    // y cuántos dedos se pararon por la inercia
-    const was = imm.qLog || imm.lockY ? { dy: Math.round(window.scrollY - imm.lockY), g: imm.guard } : null;
+    // y cuántos dedos se pararon por la inercia; 2.1.6: y cuántas veces se frenó
+    const was = imm.qLog || imm.lockY ? { dy: Math.round(window.scrollY - imm.lockY), g: imm.guard, b: imm.brN, ms: Math.round(performance.now() - imm.lockAt) } : null;
     imm.qLog = false;
     clearTimeout(imm.qT);
     immLog('armar:' + why, immNew() ? was : null);
-    if (immNew()) layoutSwap(); // 2.1.3: la portada vuelve a su tamaño con la barra, de una vez
+    if (immNew()) {
+      // 2.1.6: la portada vuelve a su tamaño con la barra (si la barra vuelve, cuando haya vuelto de verdad)
+      imm.holdBig = why === 'barra' && !!was;
+      imm.holdT = performance.now();
+      clearTimeout(imm.holdTm);
+      immPaint();
+      if (imm.holdBig) imm.holdTm = setTimeout(immPaint, 230);
+    }
   }
   function immLock() {
     imm.h = 0; // la medida anterior ya no vale hasta volver a medir
     imm.armed = false;
     imm.moved = false;
     root.classList.remove('imm-armed');
-    immLog('bloquear', immNew() ? { m: immMode(), mv: immCoast() } : null);
+    immLog('bloquear', immNew() ? { m: immMode(), mv: immCoast(), f: imm.touch } : null);
     clearTimeout(imm.lockT);
     clearTimeout(imm.setT);
     // diseño nuevo: se bloquea con el alto ya quieto, así que la medida es la de ahora
     if (immNew()) {
       imm.h = window.innerHeight; imm.w = window.innerWidth; imm.sab = immSab();
-      // 2.1.5: para el diagnóstico, hasta dónde sigue la página por su cuenta («quieta»); en B, la página queda quieta
-      imm.lockY = window.scrollY; imm.guard = 0; imm.qLog = true;
-      if (immMode() === 'b') immHold(true);
-      layoutSwap();
+      // 2.1.5: para el diagnóstico, hasta dónde sigue la página por su cuenta («quieta»)
+      imm.lockY = window.scrollY; imm.lockAt = performance.now(); imm.guard = 0; imm.qLog = true; imm.brN = 0; imm.tlog = 0;
+      imm.holdBig = false;
+      clearTimeout(imm.holdTm);
+      // 2.1.6: la portada crece sin re-maquetar (si ya se conocía el alto con la barra escondida al medirla)
+      if (imm.geoHi !== immRec().hi) immGeoRefresh();
+      else immPaint();
+      // 2.1.6 (A): parar la inercia ya; con el dedo aún en la pantalla, al levantarlo (immEnd)
+      immBrake('bloqueo');
       return;
     }
     // cuando la barra termina de encogerse, apuntar cómo queda la pantalla para notar si vuelve a crecer
@@ -1652,9 +1736,13 @@
       const r = immRec();
       if (immMode() !== 'old' && r.hi && window.innerHeight >= r.hi - 8) { immSettle(); return; }
       immSettleSoon();
+      if (imm.holdBig) immPaint(); // la barra vuelve: ¿ya del todo?
     }
     if (!imm.on || imm.armed || !imm.h) return;
     if (window.innerWidth !== imm.w) { immArm('giro'); return; }
+    // 2.1.6: bloqueado unos px antes de que la barra termine: la medida es la más alta que se vea; y al terminar, el freno
+    if (immNew() && window.innerHeight > imm.h) imm.h = window.innerHeight;
+    if (imm.brWait && immNew()) { const r = immRec(); if (!r.hi || window.innerHeight >= r.hi - 2) immBrake('barra fuera'); }
     // (diseño nuevo: se nota antes, para que la portada grande no llegue a pisar los mandos mientras sube la barra)
     if (window.innerHeight < imm.h - (immNew() ? 10 : 24) || immSab() > imm.sab + 8) immArm('barra');
   }
@@ -1680,6 +1768,8 @@
     const t = e.touches[0];
     const own = !!(e.target.closest && (e.target.closest('.feed') || e.target.closest('.controls')));
     immT = { x: t.clientX, y: t.clientY, own, sc: own ? null : immScroller(e), block: false, dec: false };
+    // 2.1.6 (diagnóstico): los dedos de justo después de bloquear: ¿con la página aún moviéndose?
+    if (immNew() && !imm.armed && imm.tlog < 3 && performance.now() - imm.lockAt < 3000) { imm.tlog++; immLog('dedo', { c: immCoast() ? 1 : 0, ms: Math.round(performance.now() - imm.lockAt) }); }
   };
   // 2.1.5 (A y B): recién bloqueado, la página todavía se desliza sola un instante. Un dedo que empieza en ese rato se
   // para ya al tocar (touchstart): después, Safari ya no deja cortar el gesto y lo que hace es arrastrar la página,
@@ -1691,9 +1781,10 @@
     if (imm.guard <= 3) immLog('inercia', { n: imm.guard, c: e.cancelable });
   };
   const immMove = (e) => {
-    // 2.1.5: ¿llegan movimientos de dedo que ya no se pueden cortar con la barra escondida? (diagnóstico)
-    if (imm.on && !imm.armed && !e.cancelable && immNew()) imm.nc++;
     const q = immT;
+    // 2.1.5: ¿llegan movimientos de dedo que ya no se pueden cortar con la barra escondida? (diagnóstico; 2.1.6: solo en el
+    // feed y los mandos y en los 3 s de después de bloquear, que las listas y Ajustes se desplazan solos y ensuciaban la cuenta)
+    if (imm.on && !imm.armed && !e.cancelable && immNew() && q && q.own && performance.now() - imm.lockAt < 3000) imm.nc++;
     if (!q || q.own || !imm.on) return; // feed y controles: lo decide setupGestures
     if (q.block) { if (e.cancelable) e.preventDefault(); return; }
     if (q.dec) return;
@@ -1709,14 +1800,42 @@
   const immEnd = (e) => {
     imm.touch = e.touches.length;
     if (!imm.touch && imm.on && imm.armed && immNew()) immSettleSoon();
+    // 2.1.6 (A): bloqueado con el dedo puesto: al levantarlo empieza la inercia, y se para
+    if (!imm.touch && imm.on && !imm.armed && immNew() && performance.now() - imm.lockAt < 3000) {
+      if (imm.tlog < 4) { imm.tlog++; immLog('suelta', { c: immCoast() ? 1 : 0, ms: Math.round(performance.now() - imm.lockAt) }); }
+      imm.brN = 0;
+      immBrake('soltar');
+    }
+    if (!imm.touch) immShieldSoon();
   };
+  // 2.1.6, modo B: el feed puede desplazarse 2 px en vertical y se deja siempre abajo del todo (ver CSS .shield)
+  const immShieldOn = () => !!(imm.on && immNew() && immMode() === 'b');
+  function immShield() {
+    if (!root) return;
+    const on = immShieldOn();
+    root.classList.toggle('shield', on);
+    if (on) immShieldFix();
+  }
+  function immShieldFix() {
+    if (!feedEl || !root || !root.classList.contains('shield') || imm.touch) return;
+    const max = feedEl.scrollHeight - feedEl.clientHeight;
+    if (max > 0 && feedEl.scrollTop !== max) feedEl.scrollTop = max;
+  }
+  // (con el feed quieto: tocar su scroll a mitad de un paso de canción lo cortaría)
+  let shT = 0;
+  let feedScT = 0;
+  function immShieldSoon() {
+    if (!root || !root.classList.contains('shield')) return;
+    clearTimeout(shT);
+    shT = setTimeout(() => { if (performance.now() - feedScT > 200 && !imm.touch) immShieldFix(); else immShieldSoon(); }, 250);
+  }
   // Con el teclado abierto Safari mueve la página a su aire: se deja fija hasta que se cierra.
   function immPause(p) {
     if (!imm.on || imm.paused === p) return;
     imm.paused = p;
     document.documentElement.classList.toggle('sx-imm', !p);
     immLog(p ? 'teclado' : 'sin teclado');
-    if (p) { clearTimeout(imm.lockT); clearTimeout(imm.setT); imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; immHold(false); } else immArm('teclado');
+    if (p) { clearTimeout(imm.lockT); clearTimeout(imm.setT); clearTimeout(imm.brTm); imm.brWait = false; imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; immPaint(); } else immArm('teclado');
   }
   // 2.1.2 — El teclado ya no está, pero puede que nadie se haya enterado (ver buildShell): la página a su sitio y el
   // modo de la barra otra vez en marcha. Se llama al tocar, al cambiar el alto visible y al cambiar de pantalla.
@@ -1744,6 +1863,10 @@
       imm.guard = 0;
       imm.nc = 0;
       imm.lockY = 0;
+      imm.lockAt = 0;
+      imm.brakes = 0;
+      imm.holdBig = false;
+      immShield();
       app.addEventListener('touchstart', immGuard, { capture: true, passive: false });
       app.addEventListener('touchstart', immStart, { capture: true, passive: true });
       app.addEventListener('touchmove', immMove, { capture: true, passive: false });
@@ -1755,9 +1878,14 @@
     } else {
       clearTimeout(imm.lockT);
       clearTimeout(imm.setT);
+      clearTimeout(imm.brTm);
+      clearTimeout(imm.holdTm);
+      imm.brWait = false;
+      imm.holdBig = false;
       imm.armed = false;
       root.classList.remove('imm-armed');
-      immHold(false);
+      immShield();
+      noTr(() => immPaint());
       app.removeEventListener('touchstart', immGuard, { capture: true });
       app.removeEventListener('touchstart', immStart, { capture: true });
       app.removeEventListener('touchmove', immMove, { capture: true });
@@ -1771,8 +1899,10 @@
       if (!imm.on || imm.paused) return;
       imm.scT = performance.now();
       const y = window.scrollY;
+      // 2.1.6 (A): bloqueado, sin dedo en la pantalla y la página moviéndose sola = inercia: se para (ver immBrake)
+      if (!imm.armed && !imm.touch && immNew() && immMode() === 'a' && imm.brN < 3 && imm.scT - imm.lockAt < 4000 && imm.scT - imm.brT > 200) immBrake('inercia');
       // 2.1.5 (diagnóstico): tras bloquear, cuándo y dónde deja de moverse la página por su cuenta
-      if (!imm.armed && imm.qLog) { clearTimeout(imm.qT); imm.qT = setTimeout(() => { if (imm.qLog && !imm.armed) { imm.qLog = false; immLog('quieta'); } }, 160); }
+      if (!imm.armed && imm.qLog) { clearTimeout(imm.qT); imm.qT = setTimeout(() => { if (imm.qLog && !imm.armed) { imm.qLog = false; immLog('quieta', { ms: Math.round(imm.scT - imm.lockAt), b: imm.brN }); } }, 160); }
       if (y < imm.y0) imm.y0 = y;
       else if (imm.armed && y - imm.y0 >= 24) {
         if (!immNew()) immLock();
@@ -1782,7 +1912,13 @@
     }, { passive: true });
     window.addEventListener('resize', immCheck);
     window.addEventListener('orientationchange', () => immArm('giro'));
-    const back = () => { if (!document.hidden) immArm('volver'); };
+    // 2.1.6: si al volver la barra sigue escondida, se queda bloqueado (antes se rearmaba y se volvía a bloquear: la
+    // portada encogía y crecía cada vez que se volvía a Safari, p. ej. al hacer una captura)
+    const back = () => {
+      if (document.hidden) return;
+      if (imm.on && immNew() && !imm.armed && !imm.paused && immFull() && window.innerWidth === imm.w) { imm.h = Math.max(imm.h, window.innerHeight); immLog('volver', { sigue: 1 }); return; }
+      immArm('volver');
+    };
     document.addEventListener('visibilitychange', back);
     window.addEventListener('pageshow', back);
     try { if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { immCheck(); kbSync(); }); } catch (e) {}
@@ -1793,6 +1929,7 @@
     } catch (e) {}
   }
   function switchView(v) {
+    listProg();
     view = v === 'list' ? 'list' : 'feed';
     app.dataset.view = view;
     $$('.seg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
@@ -1886,6 +2023,7 @@
       paintProgress();
       requestAnimationFrame(() => {
         layoutCards();
+        immShieldSoon(); // (modo B: al volver a verse, el feed vuelve a su sitio de abajo)
         feedJump(activeIdx);
         onActive(activeIdx, true);
         // en el feed suena lo que se ve
@@ -1905,6 +2043,7 @@
       if (k >= 0 && k !== listDay) { listDay = k; listDirty = true; }
     }
     const fresh = listDirty;
+    listProg();
     if (listDirty) renderList();
     const r = current && listRowById(current.id);
     const playing = current && (!audio.paused || audio.currentTime > 0);
@@ -2120,6 +2259,7 @@
     paintChrome();
     if (view === 'list') {
       renderList();
+      listProg();
       listEl.scrollTop = s.listScroll || 0;
     } else {
       feedJump(activeIdx);
@@ -2679,21 +2819,22 @@
     root.style.removeProperty('--ih');
     let land = false;
     try { land = matchMedia('(orientation:landscape) and (max-height:500px)').matches; } catch (e) {}
-    // Diseño nuevo + barra de Safari: dos tamaños. Mientras la barra se ve o se está moviendo (armado), la portada se
-    // mide con la barra grande y no se mueve (2.1.2); `extra` = lo que ha crecido el alto útil respecto al más pequeño
-    // que se ha visto con este ancho. Bloqueado (barra escondida), con todo el alto: la portada llena el hueco (2.1.3).
-    // El cambio entre uno y otro lo anima layoutSwap.
+    // Diseño nuevo + barra de Safari: la portada tiene dos tamaños. Con la barra a la vista (o moviéndose: armado) se mide
+    // con la barra grande y no se mueve (2.1.2); con la barra escondida (bloqueado), con todo el alto: llena el hueco (2.1.3).
+    // 2.1.6: la tarjeta se maqueta SIEMPRE con el tamaño grande (B) y el pequeño (S) es una transformación (.cvsm, ver CSS):
+    // cambiar de uno a otro no re-maqueta nada. `upS` = lo que ha crecido ahora el alto útil respecto al más pequeño visto
+    // (barra a la vista); `upB` = lo que le falta para el de la barra escondida (si ya se conoce en este teléfono).
     const fix = immNew() && imm.on && !land;
-    root.classList.toggle('cvfix', fix);
-    let extra = 0;
+    if (root.classList.contains('cvfix') !== fix) noTr(() => { root.classList.toggle('cvfix', fix); immPaint(); });
+    let upS = 0;
+    let upB = 0;
     if (fix) {
       const U = app.clientHeight - immSab();
       const r = immRec();
       if (U > 0 && !imm.paused && !typing() && (!r.u0 || U < r.u0)) { r.u0 = U; r.dirty = true; immSave(); }
-      if (imm.armed || imm.paused) extra = Math.max(0, U - (r.u0 || U));
-      // 2.1.5: bloqueado unos px antes de que la barra termine de encogerse: se mide ya con el alto final, para que
-      // esos últimos px no vuelvan a cambiar la portada (un segundo salto, pequeño, al acabar la animación)
-      else if (r.hi && window.innerHeight < r.hi) extra = -Math.min(8, r.hi - window.innerHeight);
+      upS = Math.max(0, U - (r.u0 || U));
+      upB = r.hi ? Math.max(0, r.hi - window.innerHeight) : 0;
+      imm.geoHi = r.hi;
     }
     if (land) {
       // en horizontal la portada va al lado del texto: tan alta como el hueco que queda
@@ -2708,42 +2849,36 @@
     ttl.style.minHeight = '';
     info.style.height = '';
     root.style.setProperty('--ih', ih + 'px');
-    const midH = mid.clientHeight - extra;
-    const avail = midH - ih - 18;
     // A la derecha de la portada va la columna de enlaces (50 px + separación). La portada sigue centrada mientras
     // quepa; si no, se corre a la izquierda lo justo, y como mucho llega a tocar el margen izquierdo.
     const W = feedEl.clientWidth - 40;
     const COL = 56;
-    const cv = Math.floor(Math.max(110, Math.min(W - COL, 440, avail)));
-    const free = (W - cv) / 2;
-    root.style.setProperty('--cv', cv + 'px');
-    root.style.setProperty('--cvs', (free < COL ? -Math.round(COL - free) : 0) + 'px');
-    root.style.setProperty('--mpt', (fix ? Math.max(0, Math.floor((midH - cv - 18 - ih) / 2)) : 0) + 'px');
+    const geo = (midH) => {
+      const cv = Math.floor(Math.max(110, Math.min(W - COL, 440, midH - ih - 18)));
+      const free = (W - cv) / 2;
+      const cvs = free < COL ? -Math.round(COL - free) : 0;
+      return { cv, cvs, x: free + cvs, mpt: fix ? Math.max(0, Math.floor((midH - cv - 18 - ih) / 2)) : 0 };
+    };
+    const midH = mid.clientHeight;
+    const B = geo(midH + upB);
+    root.style.setProperty('--cv', B.cv + 'px');
+    root.style.setProperty('--cvs', B.cvs + 'px');
+    root.style.setProperty('--mpt', B.mpt + 'px');
+    if (!fix) return;
+    // lo que hay que mover y encoger para ver el tamaño pequeño sobre la maqueta grande
+    const S = geo(midH - upS);
+    const px = (v) => Math.round(v * 10) / 10 + 'px';
+    root.style.setProperty('--kx', px(S.x - B.x));
+    root.style.setProperty('--ky', px(S.mpt - B.mpt));
+    root.style.setProperty('--ks', String(Math.round((S.cv / B.cv) * 10000) / 10000));
+    root.style.setProperty('--oy', px(S.mpt + S.cv / 2 - (B.mpt + B.cv / 2)));
+    root.style.setProperty('--iy', px(S.mpt + S.cv - (B.mpt + B.cv)));
   }
-  // 2.1.3 — Al bloquear o rearmar con la barra de Safari, la portada y el texto pasan a su sitio nuevo una sola vez,
-  // con una animación corta (transform, la hace la tarjeta gráfica). Solo la tarjeta que se ve.
-  function layoutSwap() {
-    if (!isOpen || !feedEl || view !== 'feed' || overOn()) { layoutCards(); return; }
-    const c = feedEl.children[activeIdx];
-    const els = c && !c.classList.contains('ph') ? ['.cvw', '.opens', '.info'].map((q) => $(q, c)) : [];
-    const a = els.map((el) => (el ? el.getBoundingClientRect() : null));
-    layoutCards();
-    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) {}
-    els.forEach((el, k) => {
-      if (!el || !a[k] || !el.animate) return;
-      const b = el.getBoundingClientRect();
-      const dx = a[k].left - b.left;
-      const dy = a[k].top - b.top;
-      const sc = k === 0 && b.width ? a[k].width / b.width : 1;
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sc - 1) < 0.01) return;
-      const base = k === 1 ? ' translateY(-50%)' : ''; // .opens ya va centrada con un transform
-      if (k === 0) el.style.transformOrigin = '0 0';
-      try {
-        el.animate([{ transform: `translate(${dx}px,${dy}px) scale(${sc})${base}` }, { transform: `translate(0px,0px) scale(1)${base}` }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
-        // 2.1.5: mientras dura, nada vuelve a medir las tarjetas (el reajuste de después de un cambio de alto espera)
-        imm.swapEnd = performance.now() + 300;
-      } catch (e) {}
-    });
+  // 2.1.6 — Al bloquear la primera vez en un teléfono (aún no se sabía el alto con la barra escondida), la maqueta grande hay
+  // que calcularla ahora: se calcula viéndose todavía la pequeña (sin animar) y en el fotograma siguiente se pasa a la grande.
+  function immGeoRefresh() {
+    noTr(() => { root.classList.add('cvsm'); layoutCards(); });
+    requestAnimationFrame(() => requestAnimationFrame(() => immPaint()));
   }
   function siteMsg(s) {
     let m = s.msg || '';
@@ -2945,6 +3080,8 @@
     if (feedEl.clientWidth) feedJump(activeIdx);
   }
   function onFeedScroll() {
+    feedScT = performance.now();
+    immShieldSoon();
     // con el feed oculto (lista) su scroll vuelve a 0 y avisa: eso no es el usuario cambiando de canción
     if (view !== 'feed' || performance.now() < holdUntil) return;
     if (!scrollRaf) {
@@ -3101,6 +3238,7 @@
     if (k > days.length - 1) k = days.length - 1;
     listDay = Math.max(0, k);
     renderList();
+    listProg();
     listEl.scrollTop = 0;
   }
   function rowHtml(t) {
@@ -3188,6 +3326,7 @@
   function renderList(keepScroll) {
     if (!listEl || !cur) return;
     listDirty = false;
+    listProg();
     const st = listEl.scrollTop;
     const frag = document.createDocumentFragment();
     frag.appendChild(listHead());
@@ -3345,7 +3484,42 @@
     if (curRow) curRow.classList.add('cur');
   }
   // Un solo juego de eventos para todas las filas (toque, botones y pulsación larga).
+  // 2.1.6 — La lista saltaba arriba del todo al volver a Safari tras hacer una captura (Tiger, 26 nov; en el diagnóstico,
+  // un «armar:volver» en ese momento). No se ha visto la causa (el código de la app no lo hace); por si es Safari, la app
+  // apunta dónde estaba y, si la lista pasa de golpe al principio sin que nadie la toque ni la app la mueva, la devuelve.
+  const lsg = { keep: 0, user: 0, prog: 0, jumps: 0, last: null };
+  function listProg() {
+    lsg.prog = performance.now();
+    requestAnimationFrame(() => { if (listEl) lsg.keep = listEl.scrollTop; });
+  }
+  function listRestore(why) {
+    const y = lsg.keep;
+    const src = cur;
+    const at = performance.now();
+    lsg.jumps++;
+    lsg.last = { why, from: Math.round(y), t: Math.round((at - bootAt) / 100) / 10 };
+    const put = () => {
+      if (cur !== src || view !== 'list' || !isOpen || lsg.user > at || lsg.prog > at || listEl.scrollTop === y) return;
+      listEl.scrollTop = y;
+    };
+    put();
+    [120, 400, 1000].forEach((ms) => setTimeout(put, ms));
+  }
   function setupListEvents() {
+    // 2.1.6: guardia del salto arriba (ver listRestore)
+    const mark = () => { lsg.user = performance.now(); };
+    ['touchstart', 'touchmove', 'wheel'].forEach((ev) => listEl.addEventListener(ev, mark, { passive: true }));
+    listEl.addEventListener('scroll', () => {
+      const y = listEl.scrollTop;
+      const now = performance.now();
+      if (view === 'list' && isOpen && y < 2 && lsg.keep > 150 && now - lsg.user > 1500 && now - lsg.prog > 600) { listRestore('salto'); return; }
+      lsg.keep = y;
+    }, { passive: true });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || view !== 'list' || !isOpen) return;
+      const now = performance.now();
+      if (listEl.scrollTop < 2 && lsg.keep > 150 && now - lsg.user > 1500 && now - lsg.prog > 600) listRestore('volver');
+    });
     let lp = null;
     let lpFired = false; // la pulsación larga ya ha abierto el menú: el toque que queda no cuenta
     const rowOf = (e) => { const r = e.target.closest && e.target.closest('.row'); return r ? { r, t: byId.get(r.dataset.id) } : null; };
@@ -4477,13 +4651,13 @@
         ${tgHtml('immersive', 'Esconder la barra de Safari', 'Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas')}
         <div class="lab">Sujetar la pantalla completa <small>en pruebas</small></div>
         ${pgSeg('ilk', [['old', '2.1.4'], ['a', 'A'], ['b', 'B']], immMode())}
-        <div class="note">A: si vuelves a deslizar justo después de esconder la barra, mientras la página aún se mueve, el gesto se para. B: lo mismo y, además, la página queda quieta mientras la barra está escondida. 2.1.4: como antes. En los tres se sale tocando la barra de Safari.</div>`;
+        <div class="note">A: en cuanto la barra se esconde, la página deja de deslizarse sola, para que un gesto justo después no la saque. B: otra forma: en el feed, un dedo que baja mueve el feed y no la página. 2.1.4: como antes. En los tres se sale tocando la barra de Safari.</div>`;
       const ex = () => { $('.kfx', b).textContent = 'se verá «' + keyText('Amin') + '»'; };
       ex();
       wireSeg(b, 'kf', (v) => { prefs.keyFmt = v; savePrefs(); ex(); applyLook(); });
       wireSeg(b, 'ldn', (v) => { prefs.dense = v === '1'; savePrefs(); applyLook(); });
       wireSeg(b, 'ltx', (v) => { prefs.bigText = v === '1'; savePrefs(); applyLook(); });
-      wireSeg(b, 'ilk', (v) => { prefs.immLock = v; savePrefs(); immHold(v === 'b' && imm.on && !imm.armed && !imm.paused && immNew()); immLog('modo', { m: immMode() }); });
+      wireSeg(b, 'ilk', (v) => { prefs.immLock = v; savePrefs(); immShield(); immLog('modo', { m: immMode() }); });
       wireSwitches(b);
       // al apagar el diseño nuevo esta pantalla deja de existir: decir dónde quedan los ajustes
       $('.sw[data-p="ui2"]', b).addEventListener('click', () => { if (!prefs.ui2) toast('Diseño de siempre: los ajustes vuelven a su botón de arriba'); });
@@ -4909,7 +5083,8 @@
         cv: root.style.getPropertyValue('--cv'), cvfix: root.classList.contains('cvfix'), sr: (() => { try { return history.scrollRestoration; } catch (e) { return null; } })(), nav: pgLog,
         // 2.1.5: cómo se sujeta la pantalla completa (m), dedos parados por la inercia (guard), movimientos que Safari ya no
         // dejaba cortar con la barra escondida (nc) y si la página está quieta a la fuerza (hold, modo B)
-        lk: { m: immMode(), guard: imm.guard, nc: imm.nc, hold: document.documentElement.classList.contains('sx-immhold') },
+        list: { y: listEl ? Math.round(listEl.scrollTop) : null, keep: Math.round(lsg.keep), jumps: lsg.jumps, last: lsg.last },
+        lk: { m: immMode(), guard: imm.guard, nc: imm.nc, brakes: imm.brakes, shield: !!(root && root.classList.contains('shield')), small: !!(root && root.classList.contains('cvsm')), geoHi: imm.geoHi },
       },
       // 2.1: ajustes nuevos, y qué valores de «tipo de track» ofrece la web de verdad (el filtro usa los de una página guardada)
       look: { skipBack: skipBack(), skipFwd: skipFwd(), keyFmt: prefs.keyFmt || 'both', dense: !!prefs.dense, big: !!prefs.bigText, saved: savedFilters.length },
