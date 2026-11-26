@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.7';
+  const VERSION = '2.1.8';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -782,6 +782,8 @@
     color:var(--fg);font-size:15px;line-height:1.3;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;}
   .app{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;background:var(--bg);overflow:hidden;display:none;user-select:none;-webkit-user-select:none;}
   .root.open .app{display:block;}
+  /* 2.1.8: con el teclado abierto en pantalla completa, la app conserva su alto (ver immPin) */
+  .root.kbpin .app{height:var(--apph);}
 
   /* barra superior */
   .topbar{position:absolute;left:0;right:0;top:0;z-index:30;padding:calc(var(--st) + 8px) calc(var(--sr) + 12px) 10px calc(var(--sl) + 12px);display:flex;align-items:center;gap:8px;
@@ -1384,7 +1386,8 @@
     $('.bsearch', sr).addEventListener('click', () => openSearch());
     $('.bset', sr).addEventListener('click', () => settingsGo());
     $('.srcp', sr).addEventListener('click', () => openMenu());
-    $('.sqb', sr).addEventListener('click', () => openSearch(cur && cur.kind === 'search' ? cur.query : ''));
+    // (la barra de búsqueda de los resultados es el propio campo: ahí sí sale el teclado)
+    $('.sqb', sr).addEventListener('click', () => openSearch(cur && cur.kind === 'search' ? cur.query : '', true));
     $('.pgback', sr).addEventListener('click', pgBack);
     $('.pgx', sr).addEventListener('click', pgClose);
     root.classList.toggle('dense', !!pref2('dense'));
@@ -1522,7 +1525,8 @@
   //   bloqueado = el feed vuelve a ser solo horizontal, como sin este modo (la barra ya está pequeña)
   const imm = { on: false, paused: false, armed: false, y0: 0, h: 0, w: 0, sab: 0, t0: 0, lockT: 0, log: [], touch: 0, touchT: 0, moved: false, mvT: 0, ih0: 0, setT: 0, rec: null, part: null,
     scT: 0, lockY: 0, lockAt: 0, guard: 0, nc: 0, qT: 0, qLog: false,
-    brN: 0, brT: 0, brY: 0, brWait: false, brTm: 0, brakes: 0, tlog: 0, holdBig: false, holdT: 0, holdTm: 0, geoHi: -1 };
+    brN: 0, brT: 0, brY: 0, brWait: false, brTm: 0, brakes: 0, tlog: 0, holdBig: false, holdT: 0, holdTm: 0, geoHi: -1,
+    kbFull: false, pinH: 0, pinW: 0, pinT: 0 };
   const immSab = () => { const p = root && $('.sap', root); return p ? p.offsetHeight : 0; };
   function immLog(ev, more) {
     let vv = null;
@@ -1567,6 +1571,7 @@
   function immPaint() {
     if (!root) return;
     let small = !!(imm.on && (imm.armed || imm.paused));
+    if (small && imm.pinH) small = false; // 2.1.8: con el alto de pantalla completa fijado (teclado), la portada sigue grande
     if (small && imm.holdBig) {
       const r = immRec();
       const far = !r.hi || window.innerHeight <= r.hi - 30;
@@ -1574,6 +1579,32 @@
       else imm.holdBig = false;
     }
     root.classList.toggle('cvsm', small);
+  }
+  // 2.1.8 — Teclado con la barra escondida. En el diagnóstico de Tiger (2.1.7), al cerrar el teclado el alto visible pasó
+  // un instante a 645 (barra grande) y a los 0,1 s volvió a 739: el mini reproductor y las pestañas, pegados abajo, subían
+  // 94 px y bajaban otra vez (el trompicón que veía). Ahora, si el teclado se abre con la barra escondida, la app conserva
+  // ese alto (--apph, .kbpin) mientras esté el teclado y hasta que el alto vuelva a él; si la barra ha vuelto de verdad,
+  // se suelta a los 700 ms.
+  function immPin(on) {
+    if (!root) return;
+    clearTimeout(imm.pinT);
+    if (on) {
+      imm.pinH = window.innerHeight;
+      imm.pinW = window.innerWidth;
+      root.style.setProperty('--apph', imm.pinH + 'px');
+      root.classList.add('kbpin');
+      immLog('fijar alto', { h: imm.pinH });
+      return;
+    }
+    if (!imm.pinH) return;
+    imm.pinH = 0;
+    root.classList.remove('kbpin');
+    immLog('soltar alto');
+    requestAnimationFrame(immPaint); // (si a la vez se bloquea, la portada ni se mueve)
+  }
+  function immPinCheck() {
+    if (!imm.pinH || imm.paused) return;
+    if (window.innerWidth !== imm.pinW || window.innerHeight >= imm.pinH - 8) immPin(false);
   }
   // cambia algo sin que las transiciones de la portada se animen (al entrar o salir del modo, al recalcular de golpe)
   function noTr(fn) {
@@ -1717,6 +1748,7 @@
   }
   // ¿Ha vuelto a salir la barra? (la pantalla útil se encoge o crece el margen inferior)
   function immCheck() {
+    if (imm.pinH) immPinCheck();
     if (imm.on && imm.armed && !imm.paused && immNew()) {
       // armado: apuntar el alto más pequeño desde que se armó y volver a mirar cuando deje de moverse
       if (window.innerHeight < imm.ih0) imm.ih0 = window.innerHeight;
@@ -1799,10 +1831,23 @@
   // Con el teclado abierto Safari mueve la página a su aire: se deja fija hasta que se cierra.
   function immPause(p) {
     if (!imm.on || imm.paused === p) return;
+    // 2.1.8: ¿se abre el teclado con la barra escondida? (se mira antes de cambiar nada)
+    if (p) imm.kbFull = immNew() && !imm.armed && immFull();
     imm.paused = p;
     document.documentElement.classList.toggle('sx-imm', !p);
-    immLog(p ? 'teclado' : 'sin teclado');
-    if (p) { clearTimeout(imm.lockT); clearTimeout(imm.setT); clearTimeout(imm.brTm); imm.brWait = false; imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0; immPaint(); } else immArm('teclado');
+    immLog(p ? 'teclado' : 'sin teclado', p && imm.kbFull ? { full: 1 } : null);
+    if (p) {
+      clearTimeout(imm.lockT); clearTimeout(imm.setT); clearTimeout(imm.brTm); imm.brWait = false; imm.armed = false; root.classList.remove('imm-armed'); imm.h = 0;
+      if (imm.kbFull) immPin(true);
+      immPaint();
+      return;
+    }
+    immArm('teclado');
+    // con el alto fijado: se suelta en cuanto vuelva a ser el de antes, o a los 700 ms si la barra ha vuelto de verdad
+    if (imm.pinH) {
+      immPinCheck();
+      if (imm.pinH) imm.pinT = setTimeout(() => immPin(false), 700);
+    }
   }
   // 2.1.2 — El teclado ya no está, pero puede que nadie se haya enterado (ver buildShell): la página a su sitio y el
   // modo de la barra otra vez en marcha. Se llama al tocar, al cambiar el alto visible y al cambiar de pantalla.
@@ -1850,6 +1895,7 @@
       imm.holdBig = false;
       imm.armed = false;
       root.classList.remove('imm-armed');
+      immPin(false);
       noTr(() => immPaint());
       app.removeEventListener('touchstart', immGuard, { capture: true });
       app.removeEventListener('touchstart', immStart, { capture: true });
@@ -1954,7 +2000,7 @@
   }
   // Pestaña Buscar: sin búsqueda hecha, el buscador; con ella, sus resultados (se conservan al pasar por otras pestañas).
   function searchTab() {
-    if (srchEl.classList.contains('on')) { try { $('.sq', srchEl).focus(); } catch (e) {} return; }
+    if (srchEl.classList.contains('on')) return; // (2.1.8: ya no saca el teclado; se toca el campo)
     if (cur && cur.kind === 'search') {
       if (view !== 'list') setView('list');
       else openSearch(cur.query);
@@ -2476,7 +2522,7 @@
   }
 
   /* ───────────── buscador ───────────── */
-  function openSearch(prefill) {
+  function openSearch(prefill, focus) {
     closeSheets();
     pgClose();
     srchEl.classList.add('on');
@@ -2485,7 +2531,9 @@
     const inp = $('.sq', srchEl);
     inp.value = typeof prefill === 'string' ? prefill : cur && cur.kind === 'search' ? cur.query : '';
     paintRecent();
-    try { inp.focus(); inp.select(); } catch (e) {}
+    // 2.1.8 (diseño nuevo): el teclado sale al tocar el campo, no al entrar en el buscador desde la pestaña o un menú
+    // (lo pidió Tiger). Al tocar la barra de búsqueda de unos resultados (.sqb), que es el propio campo, sí.
+    if (focus || !prefs.ui2) { try { inp.focus(); inp.select(); } catch (e) {} }
   }
   function closeSearch() {
     if (!srchEl || !srchEl.classList.contains('on')) return;
@@ -2797,7 +2845,7 @@
       const r = immRec();
       if (U > 0 && !imm.paused && !typing() && (!r.u0 || U < r.u0)) { r.u0 = U; r.dirty = true; immSave(); }
       upS = Math.max(0, U - (r.u0 || U));
-      upB = r.hi ? Math.max(0, r.hi - window.innerHeight) : 0;
+      upB = r.hi ? Math.max(0, r.hi - immSab() - U) : 0; // (2.1.8: con el alto de la app, que el teclado puede dejar fijado)
       imm.geoHi = r.hi;
     }
     if (land) {
@@ -5042,6 +5090,7 @@
         cv: root.style.getPropertyValue('--cv'), cvfix: root.classList.contains('cvfix'), sr: (() => { try { return history.scrollRestoration; } catch (e) { return null; } })(), nav: pgLog,
         // 2.1.5: cómo se sujeta la pantalla completa (m), dedos parados por la inercia (guard), movimientos que Safari ya no
         // dejaba cortar con la barra escondida (nc) y si la página está quieta a la fuerza (hold, modo B)
+        pin: imm.pinH, kbFull: imm.kbFull,
         list: { y: listEl ? Math.round(listEl.scrollTop) : null, keep: Math.round(lsg.keep), jumps: lsg.jumps, last: lsg.last },
         lk: { guard: imm.guard, nc: imm.nc, brakes: imm.brakes, small: !!(root && root.classList.contains('cvsm')), geoHi: imm.geoHi },
       },
