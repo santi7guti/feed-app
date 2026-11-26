@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.3';
+  const VERSION = '2.1.4';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -4814,6 +4814,7 @@
       lastAction,
       capture: cap.items,
       counters: { downloads: dlLeft(), favorites: favCount(), votes: voteLeft() },
+      entry: LS.get('entry', null), // 2.1.4: la última vez que se abrió la portada (cómo se llegó y si se pasó a la lista)
       session: (() => {
         // sin datos de la cuenta ni cookies: solo si la página trae sesión y si lo guardado en el móvil dura
         let keys = 0;
@@ -4993,6 +4994,20 @@
     if (wantLogin && logged && !hs.view && !/^\/list\/tracks/.test(location.pathname)) {
       location.replace(startUrl() + '#sx=list');
       return;
+    }
+    // 2.1.4 — La portada (soundeo.com) no es una lista: desde ella se va siempre a la lista de inicio, también al
+    // recargar. Hasta la 2.1.3 solo se iba al entrar desde fuera (marcador, escribir la dirección); al recargar se
+    // quedaba en la portada con solo el botón «Abrir Feed». Y una instalación nueva casi siempre llega recargando
+    // (el paso «vuelve a soundeo.com y recarga», o Safari al dar permiso a Userscripts): por eso a los amigos de Tiger
+    // solo les funcionaba con el enlace de la lista. Solo se queda si se cerró la app a propósito o si se ve que no hay
+    // sesión (entonces avisa).
+    if (location.pathname === '/' && !hs.view) {
+      const go = prefs.autoOpen && isMobile() && !loggedOut && !SS.get('closed', 0);
+      LS.set('entry', { t: Date.now(), nav: navType, logged, loggedOut, closed: !!SS.get('closed', 0), go });
+      if (go) {
+        location.replace(startUrl() + '#sx=' + prefs.startView);
+        return;
+      }
     }
     if ((fromOutside || (justLogged && !hs.view)) && prefs.forceStart && prefs.autoOpen && isMobile() && logged && !SS.get('closed', 0) &&
         (location.pathname === '/' || (/^\/list\/tracks/.test(location.pathname) && !sameAsStart()) || (justLogged && !/^\/list\/tracks/.test(location.pathname)))) {
