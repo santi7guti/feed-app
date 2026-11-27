@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.2.1';
+  const VERSION = '2.2.2';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -658,9 +658,18 @@
     });
     if (ch) keepSave();
   }
-  const hiddenFor = (list, s) => {
+  // 2.2.2: con «Feed: solo lo que no he escuchado», el feed abre en la primera que se ve (sin escuchar, la que suena o
+  // una de esta visita: `s.startAt`) y por detrás tiene todas las anteriores, escuchadas o no, hasta la primera de la
+  // lista: hacia atrás se llega a la primera del día. Hacia delante se siguen saltando las escuchadas. Antes se
+  // escondían todas, y hacia atrás se paraba en la primera sin escuchar de cuando se abrió la lista (Tiger, 27 nov).
+  // `more`: tracks que llegan detrás de los que ya había (otra página de Soundeo): ahí se esconden todas, como siempre.
+  const hiddenFor = (list, s, more) => {
+    if (!prefs.skipHeard) { if (s && !more) s.startAt = null; return new Set(); }
     const keep = keepIds(s);
-    return new Set(prefs.skipHeard ? list.filter((t) => isHeard(t) && !(current && current.id === t.id) && !(keep && keep.has(t.id))).map((t) => t.id) : []);
+    const shown = (t) => !isHeard(t) || (current && current.id === t.id) || (keep && keep.has(t.id));
+    const k = more ? -1 : list.findIndex(shown);
+    if (s && !more) s.startAt = k > 0 ? list[k].id : null;
+    return new Set(list.filter((t, j) => (k < 0 || j > k) && !shown(t)).map((t) => t.id));
   };
   const myDownloads = new Set(LS.get('downloaded', []));
   function markDownloaded(id) {
@@ -2775,7 +2784,7 @@
       kind: 'page', key: null, title: '', url: '', filters: null, canFilter: false, hide: false, loose: false, xhr: false, refId: '', query: '',
       tracks: [], hidden: new Set(), forced: new Set(), pages: newPages(), activeIdx: 0, listDay: 0, listScroll: 0, view: null, mode: 'all',
       loaded: false, loading: null, error: '', msg: '', count: null, follow: null, release: null, cut: 0, live: false, at: null, probe: null,
-      web: '', tries: null, filtersOn: '', bounced: false, needLogin: false,
+      web: '', tries: null, filtersOn: '', bounced: false, needLogin: false, startAt: null,
     }, d);
   }
   const setHidden = (set) => { hiddenAtLoad = set; if (cur) cur.hidden = set; };
@@ -2807,7 +2816,8 @@
       queue = null;
     }
     buildDeck();
-    const at = s.at != null ? deckPos.get(s.at) : null;
+    // (2.2.2: sin posición guardada, el feed abre en la primera sin escuchar, con las escuchadas de antes por detrás)
+    const at = s.at != null ? deckPos.get(s.at) : s.startAt != null ? deckPos.get(s.startAt) : null;
     activeIdx = at != null ? at : Math.max(0, Math.min(s.activeIdx || 0, deck.length));
     renderFeed();
     listDirty = true;
@@ -3606,7 +3616,7 @@
         pg.hasMore = !!info.next && info.tracks.length > 0;
         const known = new Set(list.map((t) => t.id));
         const fresh = localFilter(s, info.tracks).filter((t) => t.id && !known.has(t.id));
-        if (s.hide) hiddenFor(fresh, s).forEach((id) => s.hidden.add(id));
+        if (s.hide) hiddenFor(fresh, s, true).forEach((id) => s.hidden.add(id));
         s.tracks = list.concat(fresh);
         if (s === cur) { tracks = s.tracks; onTracksAdded(fresh); }
         return fresh;
@@ -3811,7 +3821,7 @@
     if (view === 'list' && current && listOrder.includes(current.id)) {
       const k = listOrder.indexOf(current.id) + d;
       if (k >= 0 && k < listOrder.length) { playListTrack(listOrder[k], userGesture ? true : wantPlay); return; }
-      toast(d > 0 ? 'Fin de la lista' : 'Es el primero de la lista');
+      toast(d > 0 ? 'Fin de la lista' : cur && cur.mode === 'day' ? 'Es la primera del día' : 'Es el primero de la lista');
       return;
     }
     const base = current && deckPos.has(current.id) ? deckPos.get(current.id) : -1;
@@ -3819,7 +3829,7 @@
     const idx = from + d;
     if (idx < 0) {
       if (prevPageUrl()) toast('Es el primero de esta página', 'Página anterior', () => goPage(-1));
-      else toast('Es el primero de la lista');
+      else toast(cur && cur.mode === 'day' ? 'Es la primera del día' : 'Es el primero de la lista');
       return;
     }
     goTo(idx, { play: userGesture ? true : wantPlay });
