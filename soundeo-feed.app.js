@@ -1118,6 +1118,8 @@
   .srow{display:flex;align-items:center;gap:8px;margin:0;}
   .sq{flex:1;min-width:0;height:42px;border-radius:12px;background:var(--glass);border:1px solid transparent;color:var(--fg);font:inherit;font-size:16px;padding:0 12px;outline:none;-webkit-appearance:none;appearance:none;}
   .sq:focus{border-color:var(--acc);}
+  .sqw{display:contents;}
+  .sclr,.sqx{display:none;}
   .sgo{height:42px;padding:0 14px;font-size:14.5px;border-radius:12px;}
   .sbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px 4px calc(var(--sb) + 20px);user-select:text;-webkit-user-select:text;}
 
@@ -1602,7 +1604,36 @@
   .root.ui3 .sgen{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
   .root.ui3 .sgt{display:flex;align-items:flex-end;height:68px;padding:12px;border-radius:16px;text-align:left;font-size:15.5px;font-weight:800;line-height:1.15;color:#fff;
     background:linear-gradient(135deg,hsl(var(--ih),56%,40%),hsl(calc(var(--ih) + 35),62%,21%));}
+  /* 2.2.1 · ✕ dentro del campo (y en la barra de unos resultados): quita la búsqueda; el ✕ de Safari no se usa */
+  .root.ui3 .sqw{display:flex;flex:1;min-width:0;position:relative;align-items:center;}
+  .root.ui3 .sqw .sq{padding-right:48px;}
+  .root.ui3 .sq::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none;}
+  .root.ui3 .sqw.has .sclr{display:grid;}
+  .root.ui3 .sclr{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:44px;height:44px;place-items:center;color:var(--mut);}
+  .root.ui3 .sclr i,.root.ui3 .sqx i{width:20px;height:20px;display:block;}
+  .root.ui3 .sqx{display:grid;flex:none;width:42px;height:42px;margin:0 -10px 0 auto;place-items:center;color:var(--mut);}
+  /* 2.2.1 · resultados de una búsqueda: Canciones, Artistas, Discos y Sellos */
+  .root.ui3 .stabs button{font-size:13.5px;padding:0 2px;white-space:nowrap;}
+  .root.ui3 .shd .dcount{margin-top:10px;}
+  .root.ui3 .erows{padding:2px 0 8px;}
+  .root.ui3 .erow{display:flex;align-items:center;gap:13px;width:100%;padding:8px 12px 8px 16px;text-align:left;}
+  .root.ui3 .erow:active{background:rgba(255,255,255,.05);}
+  .root.ui3 .eav{flex:none;width:56px;height:56px;border-radius:12px;display:grid;place-items:center;overflow:hidden;font-size:22px;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,hsl(var(--ih),50%,42%),hsl(calc(var(--ih) + 35),58%,22%));}
+  .root.ui3 .eav.art{border-radius:50%;}
+  .root.ui3 .eav i{width:26px;height:26px;display:block;opacity:.9;}
+  .root.ui3 .eav img{width:100%;height:100%;object-fit:cover;display:block;}
+  .root.ui3 .em{flex:1;min-width:0;}
+  .root.ui3 .em b{display:block;font-size:15.5px;font-weight:700;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .em small{display:block;margin-top:2px;font-size:13.5px;line-height:18px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .erow .pch{width:18px;height:18px;}
+  .root.ui3 .snone{padding:30px 24px;text-align:center;color:var(--mut);font-size:15px;line-height:1.4;}
+  .root.ui3 .snone .btn{margin-top:14px;}
   @media (orientation:portrait),(min-height:501px){
+    /* sin flecha en el buscador: se sale con las pestañas y se quita la búsqueda con ✕ (en horizontal sí, que no hay pestañas) */
+    .root.ui3 .sback{display:none;}
+    /* en los resultados, lo buscado va arriba y el número bajo las pestañas: la cabecera de la lista sobra (en horizontal no) */
+    .root.ui3 .app.is-search .list .lhead{display:none;}
     /* arriba: el selector de lista, grande, con sus filtros debajo; y Feed / Lista (barra «Ajustes») o los contadores (barra «Lista») */
     .root.ui3{--top:calc(var(--st) + 72px);}
     .root.ui3 .topbar{padding:calc(var(--st) + 12px) calc(var(--sr) + 14px) 10px calc(var(--sl) + 14px);}
@@ -1731,7 +1762,7 @@
             <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
             <button class="srcp" aria-label="Elegir lista"><em class="sic"></em><span></span>${i('chev')}<small class="srs"></small><b class="sdot"></b></button>
             <div class="vseg" role="group" aria-label="Vista"><button data-v="feed" aria-label="Vista Feed">${i('feed2')}</button><button data-v="list" aria-label="Vista Lista">${i('list2')}</button></div>
-            <button class="sqb" aria-label="Cambiar la búsqueda">${i('search')}<span></span></button>
+            <button class="sqb" aria-label="Cambiar la búsqueda">${i('search')}<span></span><b class="sqx" role="button" aria-label="Quitar la búsqueda">${i('xs')}</b></button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
             <button class="pill dlleft" title="Likes y descargas que te quedan hoy"><span class="vl">${i('heart')}<b>–</b></span>${i('dl')}<span class="dlc">–</span></button>
@@ -1770,7 +1801,7 @@
             <h2 class="srt">Buscar</h2>
             <form class="srow" action="#">
               <button type="button" class="ibtn sback" aria-label="Cerrar">${i('chev')}</button>
-              <input class="sq" type="search" enterkeyhint="search" placeholder="Artista, título o sello" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <div class="sqw"><input class="sq" type="search" enterkeyhint="search" placeholder="Artista, título o sello" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button type="button" class="sclr" aria-label="Borrar la búsqueda">${i('xs')}</button></div>
               <button type="submit" class="btn pri sgo">Buscar</button>
             </form>
             <div class="sbody"></div>
@@ -1813,8 +1844,15 @@
     $('.bsearch', sr).addEventListener('click', () => openSearch());
     $('.bset', sr).addEventListener('click', () => settingsGo());
     $('.srcp', sr).addEventListener('click', () => openMenu());
-    // (la barra de búsqueda de los resultados es el propio campo: ahí sí sale el teclado)
-    $('.sqb', sr).addEventListener('click', () => openSearch(cur && cur.kind === 'search' ? cur.query : '', true));
+    // (la barra de búsqueda de los resultados es el propio campo: ahí sí sale el teclado; su ✕ quita la búsqueda)
+    $('.sqb', sr).addEventListener('click', (e) => {
+      // (la ✕ va dentro del botón: se mira también dónde ha caído el dedo, por si Safari da el toque al botón)
+      const x = $('.sqx', sr).getBoundingClientRect();
+      if (e.target.closest('.sqx') || (x.width && e.clientX >= x.left - 6 && e.clientX)) { clearSearch(); return; }
+      openSearch(cur && cur.kind === 'search' ? cur.query : '', true);
+    });
+    $('.sclr', sr).addEventListener('click', clearSearch);
+    $('.sq', sr).addEventListener('input', sqwPaint);
     $('.pgback', sr).addEventListener('click', pgBack);
     $('.pgx', sr).addEventListener('click', pgClose);
     root.classList.toggle('dense', !!pref2('dense'));
@@ -2388,7 +2426,7 @@
       closeSearch();
       pgClose();
       // «Lista» nunca enseña una búsqueda (eso es la pestaña Buscar): se vuelve a la lista de debajo
-      if (t === 'list' && cur && cur.kind === 'search') leaveSearch();
+      if (t === 'list' && cur && (cur.kind === 'search' || inSearch3())) leaveSearch();
       // Diseño 2 con la barra «Ajustes»: Feed es la pestaña de la música (feed o lista). Si venías de otra pantalla,
       // vuelves a la vista en la que estabas; si ya estabas en ella, te lleva al feed.
       else if (ui3() && !tabsB() && t === 'feed') { if ((!was || (cur && cur.kind === 'search')) && view !== 'feed') setView('feed'); }
@@ -2416,7 +2454,7 @@
       const p0 = pgStack[0] && pgStack[0].id;
       on = p0 === 'home' || p0 === 'chat' ? p0 : p0 ? (tabsB() ? 'home' : 'settings')
         : srchEl && srchEl.classList.contains('on') ? 'search'
-          : cur && cur.kind === 'search' && view === 'list' ? 'search' : tabsB() ? view : 'feed';
+          : (cur && cur.kind === 'search' && view === 'list') || inSearch3() ? 'search' : tabsB() ? view : 'feed';
       $$('.vseg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
     } else {
       on = pgOn() || (st && st.classList.contains('on')) ? 'settings'
@@ -2510,10 +2548,19 @@
     if (d >= 0) popTo(d); // sigue en el camino de vuelta (se entró en un artista desde los resultados)
     else openSource(s, { view: 'list', src: s });
   }
+  // 2.2.1 (Diseño 2): un artista, disco o sello abierto desde unos resultados (en vista lista) sigue en la pestaña Buscar,
+  // como en Spotify; ‹ vuelve a los resultados y Lista, a la lista de debajo de la búsqueda.
+  function inSearch3() {
+    if (!ui3() || !cur || cur.kind === 'search' || view !== 'list') return false;
+    const k = stack.indexOf(cur);
+    return k > 0 && stack.slice(0, k).some((s) => s.kind === 'search');
+  }
   // Salir de la búsqueda a la lista que hay debajo (o, si la página arrancó en una búsqueda, a la de inicio).
   function leaveSearch() {
     let d = stack.length - 1;
     while (d >= 0 && stack[d].kind === 'search') d--;
+    // 2.2.1 (Diseño 2): también desde un artista, disco o sello abierto desde los resultados: a la lista de debajo de todo
+    if (ui3() && stack.some((s) => s.kind === 'search')) d = stack.findIndex((s) => s.kind === 'search') - 1;
     if (d < 0) { openSource(sectionDesc(prefs.startSection || 'avail'), { root: true, view: 'list' }); return; }
     stack[d].view = 'list';
     popTo(d);
@@ -2949,7 +2996,9 @@
     s.msg = info.msg;
     s.filtersOn = info.filtersOn;
     if (info.title && s.key !== 'votes' && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
-    s.mode = listModeFor(s.tracks);
+    // (2.2.1: con el Diseño 2 una búsqueda es siempre una lista seguida, con sus pestañas arriba)
+    s.mode = s.kind === 'search' && ui3() ? 'all' : listModeFor(s.tracks);
+    if (s.kind === 'release' && /\/catalog\/searchRedirect\//.test(s.url) && finalUrl && !s.bounced) s.url = finalUrl; // disco abierto desde Buscar
     s.hidden = s.hide ? hiddenFor(s.tracks, s) : new Set();
     s.forced = new Set();
     if (s.at) s.forced.add(s.at);
@@ -3020,6 +3069,7 @@
       SS.set('nav', stack.map((s) => ({
         kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr,
         refId: s.refId, query: s.query, web: s.web, live: s.live, view: s === cur ? view : s.view, at: s === cur ? (deck[activeIdx] ? deck[activeIdx].id : null) : s.at,
+        stab: s.stab || undefined, // 2.2.1: la pestaña de unos resultados (Canciones, Artistas…)
       })));
     } catch (e) {}
   }
@@ -3064,6 +3114,30 @@
     // 2.1.8 (diseño nuevo): el teclado sale al tocar el campo, no al entrar en el buscador desde la pestaña o un menú
     // (lo pidió Tiger). Al tocar la barra de búsqueda de unos resultados (.sqb), que es el propio campo, sí.
     if (focus || !prefs.ui2) { try { inp.focus(); inp.select(); } catch (e) {} }
+    sqwPaint();
+  }
+  // 2.2.1 · Diseño 2: el ✕ del campo sale si hay algo escrito o una búsqueda hecha
+  function sqwPaint() {
+    if (!srchEl) return;
+    $('.sqw', srchEl).classList.toggle('has', !!$('.sq', srchEl).value || !!searchKeep || !!(cur && cur.kind === 'search'));
+  }
+  // ✕ (en el campo o en la barra de unos resultados): baja el teclado, quita la búsqueda y deja el buscador vacío.
+  // Lo que había debajo de la búsqueda vuelve a ser la lista; al volver a Buscar sale el buscador vacío, no los resultados.
+  function clearSearch() {
+    const inp = $('.sq', srchEl);
+    inp.value = '';
+    try { inp.blur(); } catch (e) {}
+    dropSearch();
+    openSearch('', false);
+    kbSync();
+  }
+  function dropSearch() {
+    searchKeep = null;
+    const k = stack.findIndex((s) => s.kind === 'search');
+    if (k < 0) return;
+    if (k === 0) { openSource(sectionDesc(prefs.startSection || 'avail'), { root: true, view: 'list' }); return; }
+    stack[k - 1].view = 'list';
+    popTo(k - 1);
   }
   function closeSearch() {
     if (!srchEl || !srchEl.classList.contains('on')) return;
@@ -3103,7 +3177,7 @@
         body.appendChild(r);
       });
       $('.rclr', body).addEventListener('click', (e) => { e.preventDefault(); LS.set('searches', []); paintRecent(); });
-    } else body.appendChild(el('<div class="note snote">Busca por artista, título o sello. Los resultados salen como lista de tracks.</div>'));
+    } else body.appendChild(el('<div class="note snote">Busca por artista, título o sello. Salen las canciones, y en sus pestañas los artistas, discos y sellos.</div>'));
     const names = new Map(genreOptions().map((x) => [x.id, x.name]));
     const mine = (defFilters.genres || []).map(String);
     const pick = mine.concat(['12', '5', '11', '14', '81', '86', '15', '1', '2', '7', '6', '90'])
@@ -3126,6 +3200,8 @@
     rec.unshift(q);
     LS.set('searches', rec.slice(0, 12));
     closeSearch();
+    // 2.2.1 (Diseño 2): sin flecha en el buscador, volver a buscar lo mismo es volver a esos resultados, en su pestaña
+    if (ui3() && cur && cur.kind === 'search' && !cur.error && clean(cur.query).toLowerCase() === q.toLowerCase()) { if (view !== 'list') setView('list'); return; }
     openSource(searchDesc(q), { view: 'list', replace: !!(cur && cur.kind === 'search' && stack.length > 1) });
   }
 
@@ -3938,7 +4014,8 @@
     const frag = document.createDocumentFragment();
     frag.appendChild(listHead());
     listOrder = [];
-    if (!tracks.length) frag.appendChild(emptyBlock());
+    if (srch3() && !cur.error) searchList(frag); // (2.2.1: las pestañas salen también sin canciones: puede haber artistas…)
+    else if (!tracks.length) frag.appendChild(emptyBlock());
     else if (cur.mode === 'day') dayList(frag);
     else allList(frag);
     listEl.textContent = '';
@@ -4025,8 +4102,11 @@
     });
     return html;
   }
-  const allShown = (list) => (prefs.listFilter === 'new' ? list.filter((t) => !isHeard(t) || (current && current.id === t.id)) : list);
+  // 2.2.1 · Diseño 2: en los resultados de una búsqueda no hay «Todas / Sin escuchar» (están las pestañas por tipo)
+  const srch3 = () => !!cur && cur.kind === 'search' && ui3();
+  const allShown = (list) => (prefs.listFilter === 'new' && !srch3() ? list.filter((t) => !isHeard(t) || (current && current.id === t.id)) : list);
   function allList(frag) {
+    if (srch3()) { searchList(frag); return; }
     const onlyNew = prefs.listFilter === 'new';
     const shown = allShown(tracks);
     listOrder = shown.map((t) => t.id);
@@ -4047,8 +4127,159 @@
       frag.appendChild(pager);
     }
   }
+  /* ───────────── 2.2.1 · Buscar por tipo (Diseño 2) ─────────────
+     La página de búsqueda de Soundeo solo trae canciones. Artistas, discos y sellos salen de lo que su web sugiere al
+     escribir en el buscador (visto en el Soundeo real el 27 nov): /catalog/ajAutocomplete?term= da hasta 4 de cada tipo,
+     los más relevantes ([{label, category: 'Artists' | 'Labels' | 'Releases' | 'Tracks', value: id}], como texto), y
+     /catalog/ajAutocomplete/<artist|release|label>?term= hasta 20 de un tipo ([{label, value}]; a veces vacío, sin JSON).
+     Se enseñan tal como los da Soundeo (primero los del primero, después los del segundo, sin repetir) y solo se piden al
+     abrir esa pestaña: 2 peticiones la primera vez, 1 en cada una de las otras. Con menos de 3 letras la web no sugiere. */
+  const STABS = [['tracks', 'Canciones'], ['artists', 'Artistas'], ['releases', 'Discos'], ['labels', 'Sellos']];
+  const SUG = { artists: ['Artists', 'artist', 'Artista', 'artista', 'artistas'], releases: ['Releases', 'release', 'Disco', 'disco', 'discos'], labels: ['Labels', 'label', 'Sello', 'sello', 'sellos'] };
+  const stabOf = (s) => (s && s.kind === 'search' && ui3() && SUG[s.stab] ? s.stab : 'tracks');
+  const initial = (n) => (String(n || '').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase();
+  function sugGet(path, q) {
+    return fetch(location.origin + path + '?term=' + encodeURIComponent(q), { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/javascript, */*; q=0.01' } })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then((t) => { t = String(t || '').trim(); if (!t) return []; const j = JSON.parse(t); return Array.isArray(j) ? j : []; });
+  }
+  function sugState(s, k) {
+    s.sug = s.sug || {};
+    return s.sug[k] || (s.sug[k] = { items: null, err: '', p: null, short: false });
+  }
+  function sugLoad(s, k) {
+    const st = sugState(s, k);
+    if (st.items || st.p) return st.p || Promise.resolve();
+    const q = clean(s.query);
+    if (q.length < 3) { st.items = []; st.short = true; return Promise.resolve(); }
+    st.err = '';
+    const box = s.sug;
+    if (!box.all) box.all = sugGet('/catalog/ajAutocomplete', q).catch((e) => { box.allErr = short(e && e.message, 60) || 'error'; return null; });
+    const one = sugGet('/catalog/ajAutocomplete/' + SUG[k][1], q).catch((e) => { st.oneErr = short(e && e.message, 60) || 'error'; return null; });
+    st.p = Promise.all([box.all, one]).then(([all, list]) => {
+      const out = [];
+      const seen = new Set();
+      const add = (x) => {
+        const id = x && x.value != null ? String(x.value) : '';
+        const name = clean(x && x.label);
+        if (!/^\d+$/.test(id) || !name || seen.has(id)) return;
+        seen.add(id);
+        out.push({ id, name });
+      };
+      (all || []).filter((x) => x && x.category === SUG[k][0]).forEach(add);
+      (list || []).forEach(add);
+      if ((!all && !list) || (!list && !out.length)) st.err = st.oneErr || box.allErr || 'error'; // (no decir «no hay» si no se sabe)
+      else st.items = out;
+      st.p = null;
+      if (cur === s && stabOf(s) === k && isOpen && view === 'list') renderList(true);
+    });
+    return st.p;
+  }
+  function sugRetry(s, k) {
+    if (s.sug && s.sug.allErr) { s.sug.all = null; s.sug.allErr = ''; }
+    if (s.sug) s.sug[k] = null;
+    sugLoad(s, k);
+    renderList(true);
+  }
+  // discos que salen en las canciones encontradas: su dirección y su portada (las sugerencias de Soundeo no la traen)
+  function relFromTracks(s) {
+    const m = new Map();
+    (s === cur ? tracks : s.tracks).forEach((t) => {
+      const id = (/-(\d+)\.html(?:$|[?#])/.exec(t.releaseUrl || '') || [])[1];
+      if (id && !m.has(id)) m.set(id, { url: t.releaseUrl, cover: t.cover });
+    });
+    return m;
+  }
+  const relSplit = (name) => { const k = name.indexOf(' - '); return k > 0 ? [name.slice(k + 3), name.slice(0, k)] : [name, '']; };
+  function entRow(k, x, rel) {
+    const hue = genreHue(x.name);
+    let main = x.name;
+    let sub = SUG[k][2];
+    let av;
+    if (k === 'releases') {
+      const [tt, by] = relSplit(x.name);
+      main = tt;
+      if (by) sub = by;
+      const r = rel && rel.get(x.id);
+      av = r && r.cover ? `<span class="eav"><img alt="" loading="lazy" decoding="async" src="${esc(coverAt(r.cover, '110'))}" data-fb="${esc(r.cover)}"></span>` : `<span class="eav" style="--ih:${hue}">${i('disc')}</span>`;
+    } else av = `<span class="eav${k === 'artists' ? ' art' : ''}" style="--ih:${hue}">${esc(initial(x.name))}</span>`;
+    return `<button class="erow" data-k="${k}" data-id="${esc(x.id)}">${av}<span class="em"><b>${esc(main)}</b><small>${esc(sub)}</small></span><b class="pch">${ICON.chev}</b></button>`;
+  }
+  function searchCount(s, k) {
+    if (k === 'tracks') {
+      const n = (s === cur ? tracks : s.tracks).length;
+      if (!n) return '';
+      return ((s === cur ? pages : s.pages).hasMore ? 'Más de ' : '') + n + (n === 1 ? ' canción' : ' canciones');
+    }
+    const st = sugState(s, k);
+    const n = st.items ? st.items.length : 0;
+    return n ? n + ' ' + (n === 1 ? SUG[k][3] : SUG[k][4]) : '';
+  }
+  function searchList(frag) {
+    const s = cur;
+    const k = stabOf(s);
+    listOrder = tracks.map((t) => t.id); // la música sigue el orden de las canciones, se vea la pestaña que se vea
+    const cnt = searchCount(s, k);
+    const dh = el(`<div class="dhead shd"><div class="seg2 stabs">${STABS.map(([v, n]) => `<button data-st="${v}"${v === k ? ' class="on"' : ''}>${n}</button>`).join('')}</div>${cnt ? '<div class="dcount">' + esc(cnt) + '</div>' : ''}</div>`);
+    $$('.stabs button', dh).forEach((b) => b.addEventListener('click', () => setStab(b.dataset.st)));
+    frag.appendChild(dh);
+    if (k === 'tracks') {
+      if (!tracks.length) { frag.appendChild(emptyBlock()); return; }
+      allLastDay = null;
+      const rows = el('<div class="rows"></div>');
+      rows.innerHTML = allRowsHtml(tracks);
+      frag.appendChild(rows);
+      if (pages.hasMore) {
+        const pager = el('<div class="pager"><button class="btn pri bmore">Cargar más</button></div>');
+        $('.bmore', pager).addEventListener('click', (e) => { e.currentTarget.textContent = 'Cargando…'; loadMore(); });
+        frag.appendChild(pager);
+      }
+      return;
+    }
+    const st = sugState(s, k);
+    if (!st.items && !st.err && !st.p) sugLoad(s, k);
+    if (!st.items && !st.err) { frag.appendChild(el(skelRows())); return; }
+    if (st.err) {
+      const e = el(`<div class="snone">No se han podido traer los ${SUG[k][4]} de Soundeo (${esc(st.err)}).<br><button class="btn sretry">Reintentar</button></div>`);
+      $('.sretry', e).addEventListener('click', () => sugRetry(s, k));
+      frag.appendChild(e);
+      return;
+    }
+    if (!st.items.length) {
+      frag.appendChild(el(`<div class="snone">${st.short ? 'Escribe al menos 3 letras para ver ' + SUG[k][4] + '.' : 'Soundeo no tiene ' + SUG[k][4] + ' para «' + esc(s.query) + '».'}</div>`));
+      return;
+    }
+    const rel = k === 'releases' ? relFromTracks(s) : null;
+    const box = el('<div class="erows"></div>');
+    box.innerHTML = st.items.map((x) => entRow(k, x, rel)).join('');
+    frag.appendChild(box);
+  }
+  function setStab(k) {
+    const s = cur;
+    if (!s || s.kind !== 'search' || !ui3() || stabOf(s) === k) return;
+    s.stab = SUG[k] ? k : '';
+    listProg();
+    renderList();
+    listEl.scrollTop = 0;
+    syncHash(); // (guarda la pestaña para volver a ella al recargar)
+  }
+  // Entrar en un artista, disco o sello de los resultados: ‹ (o el gesto atrás de Safari) vuelve a esa misma pestaña.
+  function openEnt(k, id) {
+    const s = cur;
+    if (!s || s.kind !== 'search') return;
+    const x = (sugState(s, k).items || []).find((y) => y.id === id);
+    if (!x) return;
+    if (k === 'artists') openSource(artistDesc(x.id, x.name), { view: 'list' });
+    else if (k === 'labels') openSource(labelDesc(x.id, x.name), { view: 'list' });
+    else {
+      // un disco que sale en las canciones ya tiene su dirección; si no, la que usa la web de Soundeo (lleva a él)
+      const r = relFromTracks(s).get(x.id);
+      openSource(releaseDesc(r && r.url ? r.url : location.origin + '/catalog/searchRedirect/Releases/' + x.id, relSplit(x.name)[0]), { view: 'list' });
+    }
+  }
   function listTracksAdded(fresh) {
     if (view !== 'list' || !isOpen) { listDirty = true; return; }
+    if (srch3() && stabOf(cur) !== 'tracks') { listOrder = listOrder.concat(fresh.map((t) => t.id)); updateListCount(); return; }
     if (cur.mode === 'day') { renderList(true); return; }
     // lista seguida: añadir al final sin repintar todo
     const rows = $('.rows', listEl);
@@ -4065,6 +4296,7 @@
   function updateListCount() {
     if (!listEl || view !== 'list' || !cur) return;
     const dc = $('.dcount', listEl);
+    if (srch3()) { if (dc) dc.textContent = searchCount(cur, stabOf(cur)); else if (stabOf(cur) === 'tracks') renderList(true); return; }
     if (!dc) return;
     if (cur.mode === 'day') {
       const all = tracks.filter((t) => t.day === days[listDay]);
@@ -4138,6 +4370,8 @@
       const dragged = tq && tq.mv && performance.now() - tq.t < 2000;
       tq = null;
       if (dragged && prefs.ui2) return;
+      const er = e.target.closest && e.target.closest('.erow'); // 2.2.1: un artista, disco o sello de los resultados
+      if (er) { openEnt(er.dataset.k, er.dataset.id); return; }
       const x = rowOf(e);
       if (!x || !x.t) return;
       if (e.target.closest('.rfav')) toggleFav(x.t);
@@ -4172,7 +4406,7 @@
     }, true);
     // listas seguidas: cargar más al acercarse al final
     listEl.addEventListener('scroll', () => {
-      if (view !== 'list' || !listEl.clientHeight || !cur || cur.mode === 'day' || !pages.hasMore || pages.loading) return;
+      if (view !== 'list' || !listEl.clientHeight || !cur || cur.mode === 'day' || !pages.hasMore || pages.loading || stabOf(cur) !== 'tracks') return;
       if (listEl.scrollTop + listEl.clientHeight > listEl.scrollHeight - 900) loadMore();
     }, { passive: true });
   }
@@ -6237,6 +6471,9 @@
         mode: s.mode, pages: s.pages.first + '-' + s.pages.last + (s.pages.hasMore ? '+' : ''), count: s.count, cut: s.cut || undefined,
         follow: s.follow || undefined, error: s.error || undefined, msg: s.msg || undefined, probe: s.probe || undefined,
         tries: s.tries || undefined, filtersOn: s.filtersOn || undefined, bounced: s.bounced || undefined, needLogin: s.needLogin || undefined,
+        // 2.2.1: la pestaña de unos resultados y lo que ha dado cada tipo (número, o el fallo)
+        stab: s.stab || undefined,
+        sug: s.sug ? Object.keys(SUG).reduce((o, k) => { const st = s.sug[k]; if (st) o[k] = st.items ? st.items.length : st.err || '…'; return o; }, s.sug.allErr ? { allErr: s.sug.allErr } : {}) : undefined,
       })),
       player: {
         preload: prefs.preload, broken: pl.broken, unlocked: pl.unlocked, primes: pl.primes, swaps: pl.swaps, fails: pl.fails,
@@ -6488,7 +6725,7 @@
     live.release = info.release;
     live.msg = info.msg;
     if (info.title && /^(artist|label|release|page)$/.test(live.kind)) live.title = info.title;
-    live.mode = listModeFor(live.tracks);
+    live.mode = live.kind === 'search' && ui3() ? 'all' : listModeFor(live.tracks);
     // 2.2 · Diseño 2: si se abre antes de una hora, se vuelve exactamente a donde se estaba (también al abrir desde el
     // icono, que no es «recargar»): la lista, la canción y la vista; y es la misma visita (las escuchadas siguen detrás)
     const navApp = recent('navApp');
