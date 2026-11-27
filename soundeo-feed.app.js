@@ -1352,8 +1352,32 @@
   /* lista */
   .root.ui3 .row .rc{border-radius:10px;}
   .root.ui3 .row.cur{background:var(--accSoft);}
-  .root.ui3 .rk{display:inline-block;vertical-align:1px;margin-right:6px;height:19px;line-height:19px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:750;background:hsla(var(--kh,220),70%,55%,.18);color:hsl(var(--kh,220),85%,74%);}
-  .root.ui3 .rnew{display:inline-block;margin-right:7px;padding:2px 6px;border-radius:6px;background:var(--acc);color:var(--accInk);font-size:10px;font-weight:850;letter-spacing:.04em;font-style:normal;vertical-align:2px;}
+  .root.ui3 .rk{display:inline-block;vertical-align:top;margin-right:6px;height:19px;line-height:19px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:750;background:hsla(var(--kh,220),70%,55%,.18);color:hsl(var(--kh,220),85%,74%);}
+  .root.ui3 .rnew{display:inline-block;vertical-align:top;margin:2px 7px 0 0;height:16px;line-height:16px;padding:0 6px;border-radius:6px;background:var(--acc);color:var(--accInk);font-size:10px;font-weight:850;letter-spacing:.04em;font-style:normal;}
+  /* filas de alto fijo (cada línea con su alto, sea cual sea la letra del sistema) y, fuera de la pantalla, sin pintar:
+     así cambiar a la lista cuesta la mitad. El alto de reserva es el de verdad, para que nada salte al desplazarse. */
+  .root.ui3 .rt{line-height:20px;height:20px;}
+  .root.ui3 .ra{line-height:18px;height:18px;}
+  .root.ui3 .rx{line-height:19px;height:19px;}
+  .root.ui3 .rows .row{content-visibility:auto;contain-intrinsic-size:auto 78px;}
+  .root.ui3.dense .rt{line-height:18px;height:18px;}
+  .root.ui3.dense .ra{line-height:16px;height:16px;}
+  .root.ui3.dense .rx{line-height:16px;height:16px;}
+  .root.ui3.dense .rk{height:16px;line-height:16px;font-size:10px;padding:0 6px;}
+  .root.ui3.dense .rnew{margin-top:1px;}
+  .root.ui3.dense .rows .row{contain-intrinsic-size:auto 61px;}
+  .root.ui3.bigtx .rt{line-height:22px;height:22px;}
+  .root.ui3.bigtx .ra{line-height:20px;height:20px;}
+  .root.ui3.bigtx .rx{line-height:20px;height:20px;}
+  .root.ui3.bigtx .rk{height:20px;line-height:20px;}
+  .root.ui3.bigtx .rnew{margin-top:3px;}
+  .root.ui3.bigtx .rows .row{contain-intrinsic-size:auto 83px;}
+  .root.ui3.bigtx.dense .rt{line-height:20px;height:20px;}
+  .root.ui3.bigtx.dense .ra{line-height:18px;height:18px;}
+  .root.ui3.bigtx.dense .rx{line-height:17px;height:17px;}
+  .root.ui3.bigtx.dense .rk{height:17px;line-height:17px;font-size:10.5px;}
+  .root.ui3.bigtx.dense .rnew{margin-top:2px;}
+  .root.ui3.bigtx.dense .rows .row{contain-intrinsic-size:auto 66px;}
   .root.ui3 .gh{background:var(--bg);border-bottom:0;padding:14px 16px 6px;}
   .root.ui3 .dn{background:var(--s2);}
   .root.ui3 .seg2{background:var(--s2);border-radius:14px;padding:4px;}
@@ -1526,8 +1550,8 @@
   .root.ui3 .hmstats b{font-size:24px;font-weight:850;font-variant-numeric:tabular-nums;}
   .root.ui3 .hmstats small{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .root.ui3 .hmnc{display:block;}
-  .root.ui3 .ghd{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:hsl(var(--gh,220),70%,60%);vertical-align:1px;}
-  .root.ui3 .gh{justify-content:flex-start;}
+  .root.ui3 .ghd{flex:none;width:8px;height:8px;margin-right:8px;border-radius:50%;background:hsl(var(--gh,220),70%,60%);}
+  .root.ui3 .gh{justify-content:flex-start;align-items:center;}
   .root.ui3 .gh span{margin-left:auto;}
   .root.ui3 .lhead:empty{display:none;}
   /* «Listas» (el menú del selector) */
@@ -1646,6 +1670,7 @@
     app.classList.toggle('over', overOn());
     // 2.2 · Diseño 2: en Home no va el mini (ya está «Sigue escuchando»)
     app.classList.toggle('hm', ui3() && pgOn() && pgStack[pgStack.length - 1].id === 'home');
+    if (ui3()) folCommit(); // Seguidos que estaba debajo de una pantalla ya se ve
   };
 
   const vpMeta = (() => {
@@ -1838,7 +1863,7 @@
     const resync = () => { if (!document.hidden && isOpen && view === 'feed') holdFeed(350); };
     document.addEventListener('visibilitychange', resync);
     // 2.2 · Diseño 2: la hora sin usarla se cuenta desde que se va; al volver tras más de una hora, Home
-    document.addEventListener('visibilitychange', () => { if (!ui3()) return; if (document.hidden) { if (isOpen) noteActive(true); } else homeIfIdle(); });
+    document.addEventListener('visibilitychange', () => { if (!ui3()) return; if (document.hidden) { if (isOpen) noteActive(true); } else { homeIfIdle(); folCommit(); } });
     window.addEventListener('pagehide', () => { if (ui3() && isOpen) noteActive(true); });
     window.addEventListener('pageshow', resync);
     setupImmersive();
@@ -2408,18 +2433,23 @@
     tabsKey = k;
     box.innerHTML = set.map(([t, ic, n]) => `<button data-t="${t}">${ui3() ? '<span class="tpi">' + i(ic) + '</span>' : i(ic)}<span>${n}</span></button>`).join('');
   }
+  let ui3Was = false;
   function applyUi3(full) {
     if (!root) return;
     const on = ui3();
+    const changed = on !== ui3Was;
+    ui3Was = on;
     root.classList.toggle('ui3', on);
     root.classList.toggle('tabsb', tabsB());
     renderTabs();
+    paintOver();
     if (!full) return;
-    if (!on && pgStack.length && /^(home|chat)$/.test(pgStack[0].id)) pgClose();
+    // sin Diseño 2 no hay Home ni Chat: lo que hubiera encima (Ajustes…) se queda; si no, se cierra
+    if (!on && pgStack.length && /^(home|chat)$/.test(pgStack[0].id)) { if (pgStack.length > 1) pgStack.shift(); else pgClose(); }
     paintChrome();
     paintTabs();
-    // filas y tarjetas llevan piezas propias del Diseño 2 (tono de color, NUEVA…): repintarlas
-    if (cur) {
+    // filas y tarjetas llevan piezas propias del Diseño 2 (tono de color, NUEVA…): repintarlas al ponerlo o quitarlo
+    if (cur && changed) {
       listDirty = true;
       if (view === 'list' && isOpen) renderList(true);
       filled.forEach((c) => { const t = byId.get(c.dataset.id); if (t) fillCard(c, t); });
@@ -2742,6 +2772,7 @@
       });
     }
     syncHash();
+    if (ui3()) folCommit();
   }
   function paintChrome() {
     if (!root) return;
@@ -3064,15 +3095,16 @@
       });
       $('.rclr', body).addEventListener('click', (e) => { e.preventDefault(); LS.set('searches', []); paintRecent(); });
     } else body.appendChild(el('<div class="note snote">Busca por artista, título o sello. Los resultados salen como lista de tracks.</div>'));
-    const all = genreOptions();
+    const names = new Map(genreOptions().map((x) => [x.id, x.name]));
     const mine = (defFilters.genres || []).map(String);
     const pick = mine.concat(['12', '5', '11', '14', '81', '86', '15', '1', '2', '7', '6', '90'])
-      .filter((id, k, a) => a.indexOf(id) === k && all.some((g) => g.id === id)).slice(0, 10);
+      .filter((id, k, a) => a.indexOf(id) === k && names.has(id)).slice(0, 10);
     if (!pick.length) return;
     body.appendChild(el('<div class="sec">Explorar géneros</div>'));
     const g = el('<div class="sgen"></div>');
     pick.forEach((id) => {
-      const b = el(`<button class="sgt" style="--ih:${genreHue(genreName(id))}">${esc(genreName(id))}</button>`);
+      const nm = names.get(id);
+      const b = el(`<button class="sgt" style="--ih:${genreHue(nm)}">${esc(nm)}</button>`);
       b.addEventListener('click', () => { closeSearch(); openSource(genreDesc(id), { view: 'list' }); });
       g.appendChild(b);
     });
@@ -5168,14 +5200,21 @@
   function folMark(list) {
     LS.set('folSeen', { t: Date.now(), ids: list.slice(0, 100).map((t) => t.id) });
   }
-  // Al abrir Seguidos: se marca lo nuevo desde la última vez y lo de ahora pasa a ser «lo visto»
+  // Al cargar Seguidos: se marca lo nuevo desde la última vez; lo de ahora pasa a ser «lo visto» cuando se ve de verdad
+  // (folCommit), no si se carga debajo de Home (al volver tras más de una hora, Safari puede recargarla ahí)
   function folOpened(s) {
     const seen = folSeen();
     folNewOf(s.tracks, seen).forEach((t) => folNew.add(t.id));
     SS.set('folNew', Array.from(folNew));
-    folMark(s.tracks);
     folCache = { t: Date.now(), tracks: folMini(s.tracks) };
     LS.set('folCache', folCache);
+    s.folPending = true;
+    folCommit();
+  }
+  function folCommit() {
+    if (!cur || !cur.folPending || cur.key !== 'followed' || !cur.tracks.length || !isOpen || overOn() || document.hidden || !ui3()) return;
+    cur.folPending = false;
+    folMark(cur.tracks);
   }
   function folFetch(force) {
     const c = folCache || LS.get('folCache', null);
@@ -5584,6 +5623,8 @@
       const play = !!(e.target.closest && e.target.closest('.hmgo.hmplaynew'));
       goSec('followed');
       if (!play || !cur || cur.key !== 'followed') return;
+      // ya cargada: suena dentro del toque (el iPhone lo pide); si hay que traerla, en cuanto llegue
+      if (cur.loaded) { playNewFol(); return; }
       const s0 = cur;
       ensureLoaded(s0).then(() => { if (cur === s0) playNewFol(); });
     });
@@ -5601,7 +5642,9 @@
     tile('hm-fav', 'star', 45, 'Favoritos', fmtN(fv), 'en Soundeo', () => goSec('favs'));
     tile('hm-dl', 'dl', 200, 'Mis descargas', fmtN(dl), dl == null ? 'lo que has bajado' : dl === 1 ? 'queda hoy' : 'quedan hoy', () => goSec('downloads'));
     tile('hm-fol', 'users', 280, 'Seguidos', '…', 'nuevas', () => goSec('followed'));
-    tile('hm-vote', 'heart', 345, 'Me gusta', fmtN(vl), vl === 1 ? 'libre hoy' : 'libres hoy', () => openSource({ kind: 'page', key: 'votes', title: 'Mis me gusta', url: location.origin + '/account/votes' }, { root: true, view: 'list' }));
+    tile('hm-vote', 'heart', 345, 'Me gusta', fmtN(vl), vl === 1 ? 'libre hoy' : 'libres hoy', () => {
+      if (stack.length === 1 && cur && cur.key === 'votes' && !cur.error && !cur.needLogin) { pgClose(); setView('list'); } else openVotes();
+    });
     b.appendChild(tiles);
     homeSeguidos(fol);
     b.appendChild(el(`<div class="sec">Tus combinaciones <span class="svn">un toque y al Feed</span></div>`));
@@ -5610,14 +5653,15 @@
       savedFilters.forEach((sv, k) => {
         const x = el(`<button class="hmcombo" style="--ih:${[200, 280, 30, 140, 330][k % 5]}"><span></span>${esc(sv.name)}</button>`);
         x.addEventListener('click', () => {
-          const key = prefs.startSection === 'all' ? 'all' : 'avail';
-          openSource(sectionDesc(key, Object.assign(cleanFilters(defFilters), comboOf(sv.f), { search: '' })), { root: true, view: 'feed' });
+          // como al aplicar unos filtros: sobre los predeterminados, en Descargas disponibles (o Todos, si así están)
+          const f = Object.assign(cleanFilters(defFilters), comboOf(sv.f), { search: '' });
+          openSource(sectionDesc(String(f.available) === '0' ? 'all' : 'avail', f), { root: true, view: 'feed' });
         });
         combos.appendChild(x);
       });
     } else {
-      const x = el(`<button class="hmcombo hmc0">${i('plus')}Guarda combinaciones en Filtros actuales</button>`);
-      x.addEventListener('click', () => { if (tabsB()) pgOpen('settings'); else settingsGo(); pgOpen('filters', 'cur'); });
+      const x = el(`<button class="hmcombo hmc0">${i('plus')}Guarda tus combinaciones de filtros</button>`);
+      x.addEventListener('click', () => { if (tabsB()) pgOpen('settings'); else settingsGo(); pgOpen('filters', cur && cur.canFilter ? 'cur' : 'start'); });
       combos.appendChild(x);
     }
     b.appendChild(combos);
