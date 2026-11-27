@@ -303,7 +303,8 @@
     if (f.bpmMin != null || f.bpmMax != null) parts.push((f.bpmMin != null ? f.bpmMin : 0) + '–' + (f.bpmMax != null ? f.bpmMax : 260) + ' BPM');
     const t = TIME_OPTS.find((x) => x[0] === String(f.time));
     if (t && t[0] !== '0') parts.push(t[1]);
-    if (f.keys && f.keys.length) parts.push(f.keys.length + (f.keys.length === 1 ? ' tono' : ' tonos'));
+    const nk = f.keys && f.keys.length ? (ui3() ? keyCams(f.keys).length : f.keys.length) : 0;
+    if (nk) parts.push(nk + (nk === 1 ? ' tono' : ' tonos'));
     if (f.trackType && String(f.trackType) !== '0') parts.push(typeName(f.trackType));
     if (f.search) parts.push('“' + f.search + '”');
     return parts.join(' · ');
@@ -623,12 +624,14 @@
     delete keepMap[k];
     keepSave();
   }
-  // 2.2: vuelve a juntar con la visita de ahora lo escuchado en la anterior a esa lista. true si había algo.
-  function keepRestore(k) {
+  // 2.2: vuelve a juntar con la visita de ahora lo escuchado en la anterior a esa lista, si `id` sonó en ella (y no en
+  // esta). true si había algo.
+  function keepRestore(k, id) {
     const p = LS.get('keepPrev', {}) || {};
     const e = p[k];
-    if (!k || !e || !Array.isArray(e.ids) || !e.ids.length) return false;
+    if (!k || !e || !Array.isArray(e.ids) || !e.ids.length || e.ids.indexOf(id) < 0) return false;
     const now = keepMap[k] && Array.isArray(keepMap[k].ids) ? keepMap[k].ids : [];
+    if (now.indexOf(id) >= 0) return false;
     keepMap[k] = { t: Date.now(), ids: e.ids.filter((id) => now.indexOf(id) < 0).concat(now).slice(-600) };
     delete p[k];
     LS.set('keepPrev', p);
@@ -1314,10 +1317,15 @@
   const APP_CSS3_LAND = `
   @media (orientation:landscape) and (max-height:500px){
     /* 2.2 · Diseño 2 en horizontal: el selector de lista arriba (como en vertical), Feed / Lista en coral y Home con su ✕ */
-    .root.ui3 .srcp{display:grid;flex:0 1 auto;max-width:min(46%,380px);height:44px;border-radius:14px;}
-    .root.ui3 .srcp .sic{width:32px;height:32px;border-radius:10px;}
-    .root.ui3 .srcp span{font-size:14.5px;}
+    .root.ui3 .srcp{display:grid;flex:0 1 auto;max-width:min(46%,380px);height:38px;grid-template-columns:28px minmax(0,auto) 13px;column-gap:8px;padding:0 12px 0 5px;border-radius:12px;}
+    .root.ui3 .srcp .sic{width:28px;height:28px;border-radius:8px;}
+    .root.ui3 .srcp .sic svg{width:17px;height:17px;}
+    .root.ui3 .srcp span{font-size:14px;line-height:1.2;}
+    .root.ui3 .srcp>i{width:13px;height:13px;margin-bottom:2px;}
+    .root.ui3 .srcp .srs{font-size:11px;line-height:1.2;}
+    .root.ui3 .srcp.chg .sdot{left:27px;top:3px;width:8px;height:8px;}
     .root.ui3 .app:not(.deep) .bnav{display:none;}
+    .root.ui3 .ctx{display:none;}
     .root.ui3 .seg{background:rgba(27,27,34,.94);border-radius:14px;padding:3px;}
     .root.ui3 .seg button{border-radius:11px;}
     .root.ui3 .seg button.on{background:var(--acc);color:var(--accInk);}
@@ -1518,7 +1526,7 @@
   .root.ui3 .hmbig strong{font-size:17px;font-weight:750;}
   .root.ui3 .hmbig small{font-size:13px;color:var(--mut);}
   .root.ui3 .hmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
-  .root.ui3 .hmcovs{display:flex;min-height:44px;}
+  .root.ui3 .hmcovs{display:flex;flex:1 1 auto;min-width:0;min-height:44px;overflow:hidden;padding:3px;margin:-3px;}
   .root.ui3 .hmsc{display:block;width:44px;height:44px;border-radius:11px;object-fit:cover;background:var(--s3);box-shadow:0 0 0 3px #1c1513;}
   .root.ui3 .hmfol.none .hmsc{box-shadow:0 0 0 3px var(--s1);}
   .root.ui3 .hmsc+.hmsc{margin-left:-12px;}
@@ -1670,7 +1678,7 @@
     app.classList.toggle('over', overOn());
     // 2.2 · Diseño 2: en Home no va el mini (ya está «Sigue escuchando»)
     app.classList.toggle('hm', ui3() && pgOn() && pgStack[pgStack.length - 1].id === 'home');
-    if (ui3()) folCommit(); // Seguidos que estaba debajo de una pantalla ya se ve
+    if (ui3()) setTimeout(folCommit, 0); // Seguidos que estaba debajo de una pantalla ya se ve (si no se ha ido a otra lista)
   };
 
   const vpMeta = (() => {
@@ -2383,7 +2391,7 @@
       if (t === 'list' && cur && cur.kind === 'search') leaveSearch();
       // Diseño 2 con la barra «Ajustes»: Feed es la pestaña de la música (feed o lista). Si venías de otra pantalla,
       // vuelves a la vista en la que estabas; si ya estabas en ella, te lleva al feed.
-      else if (ui3() && !tabsB() && t === 'feed') { if (!was && view !== 'feed') setView('feed'); }
+      else if (ui3() && !tabsB() && t === 'feed') { if ((!was || (cur && cur.kind === 'search')) && view !== 'feed') setView('feed'); }
       else if (view !== t) setView(t);
     } else if (t === 'search') {
       closeSheets();
@@ -2477,13 +2485,14 @@
   function settingsGo() {
     closeSearch();
     closeSheets();
-    if (prefs.ui2) pgOpen('settings', null, { root: true });
+    if (tabsB()) { pgStack = [{ id: 'home', arg: null, scroll: 0 }]; pgOpen('settings'); pgStack[0].scroll = 0; } // 2.2: con la barra «Lista», Ajustes está dentro de Home (Home se pinta al volver)
+    else if (prefs.ui2) pgOpen('settings', null, { root: true });
     else openSettings();
   }
   // Filtros de la lista que se ve (el resumen de arriba de la lista): segunda capa de Ajustes, para que ‹ vuelva a Ajustes.
   function filtersGo() {
     if (!prefs.ui2) { openSettings(); return; }
-    pgOpen('settings', null, { root: true });
+    settingsGo();
     pgOpen('filters', 'cur');
   }
   // Pestaña Buscar: sin búsqueda hecha, el buscador; con ella, sus resultados (se conservan al pasar por otras pestañas).
@@ -3584,6 +3593,7 @@
     const u = delta < 0 ? prevPageUrl() : null;
     if (!u) return;
     SS.set('autoplay', wantPlay ? 1 : 0);
+    SS.set('navApp', Date.now()); // 2.2: la pide la app (el Diseño 2 no debe volver a donde se estaba)
     location.href = u.split('#')[0] + '#sx=' + view;
   }
   function rebuild(keep) {
@@ -4244,7 +4254,6 @@
       pl.prevId = current ? current.id : null;
       current = t;
       seekTarget = null;
-      if (play) saveLastPlay(t);
       if (!t.preview && play) toast('Este track no tiene preview');
       const pre = prefs.preload && !pl.broken && !document.hidden && t.preview ? players.find((a) => a !== audio && a._sxId === t.id && !a.error) : null;
       if (pre) {
@@ -4342,6 +4351,9 @@
       const ic = i(playing ? 'pause' : 'play');
       $('.bplay', root).innerHTML = ic;
       $('.mplay', root).innerHTML = ic;
+      // 2.2 · Diseño 2: el botón de «Sigue escuchando», si es lo que suena
+      const hp = ui3() && $('.pg.on .hmcont[data-cur] .hmplay', root);
+      if (hp) hp.innerHTML = ic;
     }
     if (feedEl) {
       const c = current ? cardById(current.id) : null;
@@ -4404,6 +4416,7 @@
   onAudio('playing', () => {
     app && app.classList.remove('spin');
     paintPlayer();
+    if (ui3() && current) saveLastPlay(current); // 2.2: «Sigue escuchando» = lo que ha sonado de verdad
     if (pl.t0) {
       // cuánto ha tardado en empezar a sonar (para el diagnóstico: precargada vs. sin precargar)
       const ms = Math.round(performance.now() - pl.t0);
@@ -5180,7 +5193,7 @@
   const HOUR = 3600000;
   const folUrl = () => sectionUrl(sectionByKey('followed'), {});
   // lo marcado como NUEVA en Seguidos durante esta pestaña (se suma si se vuelve a entrar)
-  let folNew = new Set(SS.get('folNew', []));
+  let folNew = new Set((() => { const v = SS.get('folNew', []); return Array.isArray(v) ? v : []; })());
   let folCache = null; // { t, tracks } — la página 1 de Seguidos, para Home (vale 10 minutos)
   let folBusy = null;
   const isNewFol = (t) => ui3() && !!cur && cur.key === 'followed' && folNew.has(t.id);
@@ -5236,8 +5249,8 @@
   const navDesc = (s) => (s ? { kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr, refId: s.refId, query: s.query, web: s.web } : null);
   function saveLastPlay(t) {
     if (!ui3() || !t) return;
-    const s = cur && byId.has(t.id) ? cur : queue && queue.src && queue.src.tracks.includes(t) ? queue.src : cur;
-    LS.set('lastPlay', { t: Date.now(), id: t.id, name: t.name, artist: t.artist, mix: t.mix, cover: t.cover, trackUrl: t.trackUrl, src: s && s.kind !== 'similar' ? navDesc(s) : null, srcTitle: s ? s.title : '' });
+    const s = queue && queue.src && queue.src.tracks.includes(t) ? queue.src : tracks.includes(t) ? cur : stack.find((x) => x.tracks.includes(t)) || cur;
+    LS.set('lastPlay', { t: Date.now(), id: t.id, name: t.name, artist: t.artist, mix: t.mix, cover: t.cover, trackUrl: t.trackUrl, src: navDesc(s), srcTitle: s ? s.title : '' });
   }
   // Escuchadas hoy (para «Hoy» en Home)
   const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
@@ -5264,7 +5277,7 @@
     lastNavT = setTimeout(() => {
       if (!cur || !isOpen) return;
       const t = deck[activeIdx];
-      LS.set('lastNav', { t: Date.now(), src: cur.kind === 'similar' ? null : navDesc(cur), at: view === 'feed' ? (t ? t.id : null) : current ? current.id : null, view, tab: tabNow() });
+      LS.set('lastNav', { t: Date.now(), src: navDesc(cur), at: view === 'feed' || !current || !byId.has(current.id) ? (t ? t.id : null) : current.id, view, tab: tabNow() });
     }, 400);
   }
   // Más de una hora sin usarla: al volver se abre en Home, como recién arrancada
@@ -5281,11 +5294,11 @@
     const last = LS.get('lastActive', 0);
     noteActive(true);
     if (!last || Date.now() - last > HOUR) { homeGo(); return; }
-    const ln = cont || LS.get('lastNav', null);
+    const ln = cont;
     if (!ln || !ln.tab) return;
     if (ln.tab === 'home') homeGo();
     else if (ln.tab === 'chat') pgOpen('chat', null, { root: true });
-    else if (ln.tab === 'settings') { if (tabsB()) { homeGo(); pgOpen('settings'); } else settingsGo(); }
+    else if (ln.tab === 'settings') settingsGo();
     else if (ln.tab === 'search') searchTab();
   }
   // Home: Parecidas a lo que suena (o a lo último que sonó), pedidas al enseñarse y guardadas mientras no cambie
@@ -5319,7 +5332,7 @@
       return;
     }
     const k = lp.src ? keepKey(lp.src) : '';
-    const back = keepRestore(k);
+    const back = keepRestore(k, lp.id);
     const here = cur && byId.has(lp.id) && (!lp.src || !lp.src.url || sameUrl(lp.src.url, cur.url));
     if (here) {
       // en la lista que se ve: suena ya (dentro del toque, como pide el iPhone)
@@ -5359,13 +5372,17 @@
     if (cur !== s || ok() || !s.pages.hasMore || n <= 0) return Promise.resolve(cur === s && ok());
     return loadMore().then(() => findDeep(s, id, n - 1));
   }
-  function playNewFol() {
-    const t = tracks.find((x) => folNew.has(x.id));
-    if (!t) { toast('En esta lista ya no hay canciones nuevas'); return; }
+  // Al feed de la lista que se ve, en `t`, sonando (dentro del toque)
+  function focusPlay(t) {
     if (!deckPos.has(t.id)) { forced.add(t.id); buildDeck(); renderFeed(); }
     activeIdx = deckPos.get(t.id) || 0;
     setView('feed');
     load(t, true);
+  }
+  function playNewFol() {
+    const t = tracks.find((x) => folNew.has(x.id));
+    if (!t) { toast('En esta lista ya no hay canciones nuevas'); return; }
+    focusPlay(t);
   }
   function homeCover(url, cls) {
     return url ? `<img class="${cls}" alt="" decoding="async" loading="lazy" src="${esc(coverAt(url, '110'))}">` : `<span class="${cls} hmnc"></span>`;
@@ -5403,6 +5420,13 @@
       box.innerHTML = '<div class="hmsims">' + r.list.slice(0, 10).map(card).join('') + '</div>';
       $$('.hmsim', box).forEach((b) => b.addEventListener('click', () => {
         const x = r.list[+b.dataset.k];
+        const same = !!(stack.length && cur && cur.kind === 'similar' && sameUrl(cur.url, r.src.url));
+        if (same && byId.has(x.id)) {
+          // ya se está en esas Parecidas («Ver todas»): a la tocada, dentro de la misma lista
+          pgClose();
+          focusPlay(byId.get(x.id));
+          return;
+        }
         // una fuente nueva con lo ya traído (no se pide otra vez), abierta en el feed en la canción tocada
         const s2 = mkSrc({ kind: 'similar', title: r.src.title, xhr: true, web: r.src.web, url: r.src.url, loaded: true, at: x.id, view: 'feed' });
         s2.tracks = r.list.slice();
@@ -5410,7 +5434,7 @@
         s2.forced.add(x.id);
         pgClose();
         wantPlay = true;
-        openSource({ kind: 'similar', title: s2.title, url: s2.url }, { src: s2, view: 'feed' });
+        openSource({ kind: 'similar', title: s2.title, url: s2.url }, { src: s2, view: 'feed', replace: same });
         if (cur === s2 && deckPos.has(x.id)) { activeIdx = deckPos.get(x.id); load(byId.get(x.id) || x, true); }
       }));
     }, () => { if (box.isConnected) box.innerHTML = '<div class="hmnote">No se han podido traer las parecidas.</div>'; });
@@ -5538,7 +5562,7 @@
     return isStart ? 'Filtros predeterminados' : 'Filtros actuales';
   }
   // Tonos elegidos por número de la rueda (los nombres que valen lo mismo, juntos)
-  const keyCams = (keys) => { const out = []; keys.forEach((k) => { const c = camelot(k) || k; if (!out.includes(c)) out.push(c); }); return out.sort((a, z) => camSort(a) - camSort(z)); };
+  function keyCams(keys) { const out = []; keys.forEach((k) => { const c = camelot(k) || k; if (!out.includes(c)) out.push(c); }); return out.sort((a, z) => camSort(a) - camSort(z)); }
   function bpmkey3(b) {
     if (!fdraft) { pgPop(0); return ''; }
     const f = fdraft.f;
@@ -5586,7 +5610,7 @@
       const c = cams.find((y) => y.cam === x.dataset.c);
       if (!c) return;
       const has = f.keys.some((k) => c.ids.includes(k));
-      f.keys = has ? f.keys.filter((k) => !c.ids.includes(k)) : f.keys.concat(c.ids[0]);
+      f.keys = has ? f.keys.filter((k) => !c.ids.includes(k)) : f.keys.concat(c.ids.filter((k) => !f.keys.includes(k)));
       fTouched();
       paint(false);
     }));
@@ -5599,7 +5623,8 @@
     const lp = LS.get('lastPlay', null);
     const sameAsCur = !!(current && lp && lp.id === current.id);
     const played = !!(current && (sameAsCur || !audio.paused || audio.currentTime > 0));
-    const t = played ? current : lp && lp.id ? lp : null;
+    // la última que sonó, si se puede volver a ella (su lista, o está en la que se ve)
+    const t = played ? current : lp && lp.id && (lp.src || byId.has(lp.id)) ? lp : null;
     const srcTitle = played ? (sameAsCur && lp.srcTitle) || (cur ? cur.title : '') : lp ? lp.srcTitle : '';
     const hdr = el(`<div class="hmh"><div><div class="hmd">${esc(homeDate())}</div><h1>Home</h1></div>${tabsB() ? `<button class="ibtn hmset" aria-label="Ajustes">${i('set2')}</button>` : ''}</div>`);
     const hs = $('.hmset', hdr);
@@ -5608,8 +5633,14 @@
     if (t) {
       const d = audio.duration;
       const pct = current && t === current && isFinite(d) && d > 0 ? Math.min(100, (audio.currentTime / d) * 100) : 0;
-      const card = el(`<button class="hmcard hmcont">${homeCover(t.cover, 'hmcc')}<span class="hmct"><span class="hmk">SIGUE ESCUCHANDO</span><b>${esc(t.name)}</b><small>${esc([t.artist, srcTitle].filter(Boolean).join(' · '))}</small>${pct ? `<span class="hmbar"><span style="width:${pct.toFixed(1)}%"></span></span>` : ''}</span><span class="hmplay">${i(current && t === current && !audio.paused ? 'pause' : 'play')}</span></button>`);
-      card.addEventListener('click', () => resumeLast(played ? Object.assign({}, sameAsCur ? lp : null, { id: current.id }) : lp));
+      const card = el(`<button class="hmcard hmcont"${played && t === current ? ' data-cur="1"' : ''}>${homeCover(t.cover, 'hmcc')}<span class="hmct"><span class="hmk">SIGUE ESCUCHANDO</span><b>${esc(t.name)}</b><small>${esc([t.artist, srcTitle].filter(Boolean).join(' · '))}</small>${pct ? `<span class="hmbar"><span style="width:${pct.toFixed(1)}%"></span></span>` : ''}</span><span class="hmplay">${i(current && t === current && !audio.paused ? 'pause' : 'play')}</span></button>`);
+      card.addEventListener('click', (e) => {
+        if (played && t === current && e.target.closest && e.target.closest('.hmplay')) {
+          if (audio.paused) { wantPlay = true; audio.play().catch(() => {}); } else { wantPlay = false; audio.pause(); }
+          return; // el icono lo cambia paintPlayer con el evento play / pause
+        }
+        resumeLast(played ? Object.assign({}, sameAsCur ? lp : null, { id: current.id }) : lp);
+      });
       b.appendChild(card);
     }
     // desde Home, ir a una sección cierra Home (aunque ya fuera la lista de debajo)
@@ -6312,8 +6343,9 @@
     if (!toastsEl || !isOpen) return null;
     const t = el(`<div class="toast"><span>${esc(msg)}</span>${actionLabel ? '<button>' + esc(actionLabel) + '</button>' : ''}</div>`);
     if (actionLabel) $('button', t).addEventListener('click', () => { t.remove(); fn && fn(); });
-    // 2.2 · Diseño 2: un solo aviso a la vez (el nuevo sustituye al anterior)
-    if (ui3()) toastsEl.textContent = '';
+    // 2.2 · Diseño 2: un solo aviso a la vez (el nuevo sustituye al anterior); uno con botón (p. ej. «Recargar» con una
+    // versión nueva) solo lo sustituye otro con botón
+    if (ui3()) $$('.toast', toastsEl).forEach((x) => { if (actionLabel || !$('button', x)) x.remove(); });
     toastsEl.appendChild(t);
     while (toastsEl.children.length > 3) toastsEl.firstElementChild.remove();
     setTimeout(() => t.remove(), ms || (actionLabel ? 6000 : 2600));
@@ -6459,7 +6491,12 @@
     live.mode = listModeFor(live.tracks);
     // 2.2 · Diseño 2: si se abre antes de una hora, se vuelve exactamente a donde se estaba (también al abrir desde el
     // icono, que no es «recargar»): la lista, la canción y la vista; y es la misma visita (las escuchadas siguen detrás)
-    const ln3 = ui3() ? LS.get('lastNav', null) : null;
+    const navApp = recent('navApp');
+    SS.del('navApp');
+    // abrir la app: icono, marcador de la lista de inicio o de una dirección de la app (#sx=…), recarga. No un enlace a
+    // otra página de Soundeo (un artista desde WhatsApp…) ni otra página de la lista
+    const boot3 = ui3() && !navApp && (resume || (pageNumber() === 1 && (sameAsStart() || !!hs.view)));
+    const ln3 = boot3 ? LS.get('lastNav', null) : null;
     const cont3 = !!(ln3 && ln3.src && ln3.src.url && !resume && !(recent('navOnce') && logged) &&
       Date.now() - LS.get('lastActive', 0) < HOUR && Date.now() - (ln3.t || 0) < HOUR);
     const contLive = cont3 && sameUrl(ln3.src.url, live.url);
@@ -6497,15 +6534,20 @@
     const isListPage = /^\/list\/tracks/.test(location.pathname);
     const shouldOpen = hs.view || navOnce || (isListPage && prefs.autoOpen && isMobile() && !SS.get('closed', 0));
     if (shouldOpen) {
-      if (deck[activeIdx]) load(deck[activeIdx], false);
+      if (deck[activeIdx] && !(cont3 && !contLive)) load(deck[activeIdx], false);
       openApp(view);
       // sección de inicio que no es una lista normal (Top 100, próximos, seguidos…): abrirla ahora
       const sec = prefs.startSection || 'avail';
-      if (cont3 && !contLive) openSource(Object.assign({}, ln3.src, { at: ln3.at }), { root: true, view, resume: true });
-      else if (!cont3 && !resume && (fromOutside || firstBoot) && stack.length === 1 && !/^(avail|all)$/.test(sec) && SECTIONS.some((x) => x.key === sec)) {
+      if (cont3 && !contLive) {
+        const s3 = openSource(Object.assign({}, ln3.src, { at: ln3.at }), { root: true, view, resume: true });
+        // en el feed suena (y se carga) lo que se ve; en la lista, cargar en el mini la que estaba
+        if (ln3.at && view === 'list') ensureLoaded(s3).then(() => { if (cur === s3 && !current && byId.has(ln3.at)) { load(byId.get(ln3.at), false); if (view === 'list') prepList(); } });
+      } else if (!cont3 && !resume && (fromOutside || firstBoot) && stack.length === 1 && !/^(avail|all)$/.test(sec) && SECTIONS.some((x) => x.key === sec)) {
         openSource(sectionDesc(sec), { root: true });
       }
-      ui3Boot(cont3 ? ln3 : null);
+      // al recargar, la lista y la canción las devuelve lo guardado en la pestaña (2.1.9); la pestaña de abajo, `lastNav`
+      if (boot3) ui3Boot(cont3 || (resume && ln3 && Date.now() - (ln3.t || 0) < HOUR) ? ln3 : null);
+      else if (ui3()) noteActive(true);
       // red de seguridad: si Soundeo marca TODA la página como escuchada, preguntar una vez
       if (prefs.siteHeard && live.tracks.length >= 20 && live.tracks.every((t) => t.siteHeard) && !LS.get('siteHeardAsked', false)) {
         LS.set('siteHeardAsked', true);
