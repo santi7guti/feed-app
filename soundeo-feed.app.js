@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.9';
+  const VERSION = '2.2.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -65,6 +65,10 @@
     keyFmt: 'both', // tono: 'both' («8A Amin»), 'cam' («8A») o 'mus' («Amin»)
     dense: false, // lista compacta
     bigText: false, // letra grande
+    // 2.2 · «Diseño 2» (el pulido): escondido hasta que se desbloquea tocando 5 veces la versión en Ajustes
+    ui3: false,
+    ui3Unlocked: false,
+    tabLayout: 'settings', // quinta pestaña del Diseño 2: 'settings' (Ajustes) o 'list' (Lista; Ajustes, desde Home)
   };
   let defFilters = Object.assign({}, DEFAULT_FILTERS, LS.get('filters', {}));
   let prefs = Object.assign({}, DEFAULT_PREFS, LS.get('prefs', {}));
@@ -72,6 +76,10 @@
   const clampInt = (v, lo, hi, def) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
   // Los ajustes de la 2.1 solo cuentan con el diseño nuevo, que es donde se cambian: al apagarlo, todo vuelve a como era.
   const pref2 = (k) => (prefs.ui2 ? prefs[k] : DEFAULT_PREFS[k]);
+  // 2.2 · Diseño 2: va siempre encima del diseño nuevo (usa sus pestañas y sus pantallas por capas)
+  if (prefs.ui3 && !prefs.ui2) prefs.ui3 = false;
+  const ui3 = () => !!(prefs.ui3 && prefs.ui2);
+  const tabsB = () => ui3() && prefs.tabLayout === 'list'; // pestañas Home, Feed, Lista, Buscar, Chat
   const skipBack = () => clampInt(pref2('skipBack'), 1, 99, 15);
   const skipFwd = () => clampInt(pref2('skipFwd'), 1, 99, 30);
   // 2.1: combinaciones de filtros guardadas (máximo 5). Cada una lleva solo lo que es «filtro» (géneros, BPM, fecha,
@@ -545,6 +553,7 @@
   function markHeard(id) {
     if (!id || heard.has(id)) return;
     heard.add(id);
+    if (ui3()) countHeardToday();
     clearTimeout(heardSaveT);
     heardSaveT = setTimeout(() => LS.set('heard', Array.from(heard).slice(-8000)), 800);
     const row = listRowById(id);
@@ -601,7 +610,30 @@
   }
   function keepReset(s) {
     const k = keepKey(s);
-    if (k && keepMap[k]) { delete keepMap[k]; keepSave(); }
+    if (!k || !keepMap[k]) return;
+    // 2.2 · Diseño 2: la visita anterior se aparta (no se tira): «Sigue escuchando» la recupera con lo escuchado detrás
+    if (prefs.ui3 && prefs.ui2) {
+      const p = LS.get('keepPrev', {}) || {};
+      p[k] = keepMap[k];
+      const ks = Object.keys(p).filter((x) => p[x] && p[x].t > Date.now() - 7 * 864e5).sort((a, b) => p[b].t - p[a].t).slice(0, 6);
+      const m = {};
+      ks.forEach((x) => { m[x] = p[x]; });
+      LS.set('keepPrev', m);
+    }
+    delete keepMap[k];
+    keepSave();
+  }
+  // 2.2: vuelve a juntar con la visita de ahora lo escuchado en la anterior a esa lista. true si había algo.
+  function keepRestore(k) {
+    const p = LS.get('keepPrev', {}) || {};
+    const e = p[k];
+    if (!k || !e || !Array.isArray(e.ids) || !e.ids.length) return false;
+    const now = keepMap[k] && Array.isArray(keepMap[k].ids) ? keepMap[k].ids : [];
+    keepMap[k] = { t: Date.now(), ids: e.ids.filter((id) => now.indexOf(id) < 0).concat(now).slice(-600) };
+    delete p[k];
+    LS.set('keepPrev', p);
+    keepSave();
+    return true;
   }
   // Apunta `id` en cada lista abierta (la de la pantalla, las de debajo y la de la cola) en cuyo feed está.
   function keepNote(id) {
@@ -797,6 +829,30 @@
     feed: '<svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 9.6v4.8l4-2.4z" fill="currentColor"/></svg>',
     eye: '<svg viewBox="0 0 24 24"><path d="M2.8 12c2.3-4 5.5-6 9.2-6s6.9 2 9.2 6c-2.3 4-5.5 6-9.2 6s-6.9-2-9.2-6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>',
     plus: '<svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+
+    // 2.2 · iconos del Diseño 2 (trazo fino y redondeado)
+    home: '<svg viewBox="0 0 24 24"><path d="M4 10.2 12 4l8 6.2V19a1.5 1.5 0 0 1-1.5 1.5H15v-5.5H9v5.5H5.5A1.5 1.5 0 0 1 4 19z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    feed2: '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.2 9.2v5.6l4.6-2.8z" fill="currentColor"/></svg>',
+    list2: '<svg viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4.6" cy="6.5" r="1.2" fill="currentColor"/><circle cx="4.6" cy="12" r="1.2" fill="currentColor"/><circle cx="4.6" cy="17.5" r="1.2" fill="currentColor"/></svg>',
+    search2: '<svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m15.6 15.6 4.4 4.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    chat2: '<svg viewBox="0 0 24 24"><path d="M5.5 4.5h13a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H11l-4.5 3.5V17h-1a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9.5h7M8.5 12.5h4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    set2: '<svg viewBox="0 0 24 24"><path d="M4 7.5h8.5M17.5 7.5H20M4 16.5h2.5M11.5 16.5H20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="7.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="16.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    users: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.2a3.5 3.5 0 0 1 0 6.6M17.5 14.2a6 6 0 0 1 3.5 5.3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    spark: '<svg viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 16v4M16.5 18h4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    bolt: '<svg viewBox="0 0 24 24"><path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    wheel: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3.8v4.6M12 15.6v4.6M3.8 12h4.6M15.6 12h4.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    tempo: '<svg viewBox="0 0 24 24"><path d="M9.2 4h5.6l3.2 16H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16.5l4.2-8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    palette: '<svg viewBox="0 0 24 24"><path d="M12 3.8a8.2 8.2 0 1 0 0 16.4c1 0 1.4-.7 1.4-1.4 0-.9-.7-1.3-.7-2.1 0-.9.7-1.5 1.6-1.5h1.9a3.6 3.6 0 0 0 3.6-3.6c0-4.3-3.6-7.8-7.8-7.8z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="11" r="1.1" fill="currentColor"/><circle cx="10.5" cy="7.5" r="1.1" fill="currentColor"/><circle cx="14.5" cy="7.8" r="1.1" fill="currentColor"/></svg>',
+    door: '<svg viewBox="0 0 24 24"><path d="M13.5 4.5h4a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-4M9.5 16l4-4-4-4M13.5 12H4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    bug: '<svg viewBox="0 0 24 24"><path d="M9 7.5a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><rect x="7" y="8.5" width="10" height="11" rx="5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v8.5M4 13h3M17 13h3M5 8.5l2 1.5M19 8.5l-2 1.5M5 18.5l2-1.5M19 18.5l-2-1.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    layers: '<svg viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 11.5a7.5 7.5 0 1 1-2.2-5.3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 4.5v4.5H15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    trophy: '<svg viewBox="0 0 24 24"><path d="M8 4.5h8V9a4 4 0 0 1-8 0z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6.5H5.5a2.8 2.8 0 0 0 2.9 3.6M16 6.5h2.5a2.8 2.8 0 0 1-2.9 3.6M12 13v3.5M8.5 20h7M9.8 16.5h4.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    note: '<svg viewBox="0 0 24 24"><path d="M9 17.5V6l10-2v11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="17.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="15" r="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    funnel: '<svg viewBox="0 0 24 24"><path d="M4.5 5.5h15l-5.8 6.8v5.4l-3.4 1.8v-7.2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    xs: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    right: '<svg viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
 
   /* ───────────────────────── estilos ───────────────────────── */
@@ -1255,6 +1311,296 @@
     .chips{display:none;}
   }
   `;
+  const APP_CSS3_LAND = `
+  @media (orientation:landscape) and (max-height:500px){
+    /* 2.2 · Diseño 2 en horizontal: el selector de lista arriba (como en vertical), Feed / Lista en coral y Home con su ✕ */
+    .root.ui3 .srcp{display:grid;flex:0 1 auto;max-width:min(46%,380px);height:44px;border-radius:14px;}
+    .root.ui3 .srcp .sic{width:32px;height:32px;border-radius:10px;}
+    .root.ui3 .srcp span{font-size:14.5px;}
+    .root.ui3 .app:not(.deep) .bnav{display:none;}
+    .root.ui3 .seg{background:rgba(27,27,34,.94);border-radius:14px;padding:3px;}
+    .root.ui3 .seg button{border-radius:11px;}
+    .root.ui3 .seg button.on{background:var(--acc);color:var(--accInk);}
+    .root.ui3 .pill,.root.ui3 .ibtn{background:rgba(27,27,34,.94);}
+    .root.ui3 .pgh{min-height:calc(var(--st) + 50px);padding-top:calc(var(--st) + 6px);}
+    .root.ui3 .pg:not(.sub) .pgh h2{font-size:26px;}
+    .root.ui3 .hmh{display:none;}
+    .root.ui3 .hmh+.hmcard{margin-top:4px;}
+    .root.ui3 .hmtiles{grid-template-columns:repeat(4,minmax(0,1fr));}
+    .root.ui3 .sgen{grid-template-columns:repeat(4,minmax(0,1fr));}
+    .root.ui3 .cht{padding-top:6px;}
+  }
+  `;
+  const APP_CSS3 = `
+  /* ───────── 2.2 · «Diseño 2» (el pulido). Todo bajo .root.ui3, salvo esconder sus piezas nuevas en los otros diseños ───────── */
+  .vseg,.srcp .sic,.srcp .srs,.srcp .sdot{display:none;}
+  .root.ui3{--bg:#0a0a0d;--fg:#f4f4f7;--s1:#131318;--s2:#1b1b22;--s3:#25252e;--line:rgba(255,255,255,.07);--mut:rgba(244,244,247,.64);--dim:rgba(244,244,247,.42);
+    --acc:#ff7a50;--accInk:#0b0b0e;--accSoft:rgba(255,122,80,.16);--accLine:rgba(255,122,80,.42);}
+  /* tarjeta del feed */
+  .root.ui3 .cvw{border-radius:18px;}
+  .root.ui3 .eyebrow .ix{color:var(--acc);}
+  .root.ui3 .ttl{font-size:27px;letter-spacing:-.025em;}
+  .root.ui3 .art{font-size:18px;}
+  .root.ui3 .chip{height:27px;padding:0 10px;background:rgba(255,255,255,.1);}
+  .root.ui3 .chip.key{gap:6px;background:hsla(var(--kh,220),70%,55%,.2);color:hsl(var(--kh,220),85%,74%);}
+  .root.ui3 .chip.key::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;}
+  .root.ui3 .chip.key b{color:inherit;}
+  .root.ui3 .rbtn{width:48px;height:48px;background:rgba(255,255,255,.1);}
+  .root.ui3 .cb.big{background:var(--acc);color:var(--accInk);}
+  .root.ui3 .bar .fill{background:var(--acc);}
+  .root.ui3 .controls{background:linear-gradient(to top,rgba(10,10,13,.9),rgba(10,10,13,0));}
+  /* lista */
+  .root.ui3 .row .rc{border-radius:10px;}
+  .root.ui3 .row.cur{background:var(--accSoft);}
+  .root.ui3 .rk{display:inline-block;vertical-align:1px;margin-right:6px;height:19px;line-height:19px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:750;background:hsla(var(--kh,220),70%,55%,.18);color:hsl(var(--kh,220),85%,74%);}
+  .root.ui3 .rnew{display:inline-block;margin-right:7px;padding:2px 6px;border-radius:6px;background:var(--acc);color:var(--accInk);font-size:10px;font-weight:850;letter-spacing:.04em;font-style:normal;vertical-align:2px;}
+  .root.ui3 .gh{background:var(--bg);border-bottom:0;padding:14px 16px 6px;}
+  .root.ui3 .dn{background:var(--s2);}
+  .root.ui3 .seg2{background:var(--s2);border-radius:14px;padding:4px;}
+  .root.ui3 .seg2 button{height:36px;border-radius:11px;}
+  .root.ui3 .seg2 button.on{background:var(--s3);}
+  .root.ui3 .fsum{background:var(--s1);border-radius:16px;}
+  .root.ui3 .fnew{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;}
+  .root.ui3 .fnb{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:14px;background:var(--acc);color:var(--accInk);font-size:13px;font-weight:850;}
+  .root.ui3 .fnew .btn{height:40px;padding:0 14px;font-size:14px;}
+  .root.ui3 .fnew .btn i{width:18px;height:18px;}
+  .root.ui3 .fnz{font-size:13.5px;color:var(--mut);}
+  /* mini reproductor */
+  .root.ui3 .mini{background:#1d1d25;border-radius:18px;}
+  .root.ui3 .mini img{border-radius:10px;}
+  .root.ui3 .mini .mplay{border-radius:50%;background:var(--acc);color:var(--accInk);}
+  .root.ui3 .mini .mplay i{width:22px;height:22px;}
+  /* botones, interruptores, etiquetas */
+  .root.ui3 .btn{background:var(--s2);}
+  .root.ui3 .btn.pri,.root.ui3 .btn.acc{background:var(--acc);color:var(--accInk);}
+  .root.ui3 .btn[disabled]{opacity:.4;}
+  .root.ui3 .sw.on{background:var(--acc);}
+  .root.ui3 .tag{background:var(--s1);box-shadow:inset 0 0 0 1px var(--line);color:var(--fg);}
+  .root.ui3 .tag.on{background:var(--acc);box-shadow:none;color:var(--accInk);}
+  .root.ui3 .tag small{opacity:.75;}
+  .root.ui3 .bpm input,.root.ui3 .txt,.root.ui3 .sq{background:var(--s2);}
+  .root.ui3 .opt.pri,.root.ui3 .opt.pri i,.root.ui3 .lab a{color:var(--acc);}
+  .root.ui3 .sheet,.root.ui3 .sf{background:var(--s1);}
+  .root.ui3 .sheet{border-radius:24px 24px 0 0;}
+  /* un solo aviso, abajo: encima de los mandos en el feed, encima del mini en la lista y en las pantallas */
+  .root.ui3 .toasts{top:auto;bottom:calc(var(--ctrl) + 4px);}
+  .root.ui3 .app[data-view=list] .toasts,.root.ui3 .app.over .toasts{bottom:calc(var(--sb) + 14px);}
+  .root.ui3 .app[data-view=list].has-cur .toasts,.root.ui3 .app.over.has-cur .toasts{bottom:calc(var(--sb) + 116px);}
+  .root.ui3 .toast{background:#2a2a33;color:var(--fg);border-radius:16px;padding:12px 14px;font-size:14.5px;box-shadow:0 10px 28px rgba(0,0,0,.5);}
+  .root.ui3 .toast button{color:var(--acc);}
+  /* el selector de lista (arriba): icono, nombre, filtros debajo y un punto si no son los predeterminados */
+  .root.ui3 .srcp{position:relative;grid-template-columns:36px minmax(0,auto) 14px;grid-template-rows:auto auto;justify-content:start;align-items:center;column-gap:10px;min-width:0;height:50px;padding:0 14px 0 7px;border-radius:16px;background:rgba(27,27,34,.94);text-align:left;}
+  .root.ui3 .srcp .sic{display:grid;place-items:center;grid-column:1;grid-row:1 / 3;width:36px;height:36px;border-radius:11px;background:var(--accSoft);color:var(--acc);}
+  .root.ui3 .srcp .sic svg{width:20px;height:20px;}
+  .root.ui3 .srcp span{grid-column:2;grid-row:1;align-self:end;font-size:15.5px;font-weight:750;letter-spacing:-.01em;line-height:1.25;}
+  .root.ui3 .srcp>i{grid-column:3;grid-row:1;align-self:end;width:14px;height:14px;margin-bottom:3px;color:var(--mut);}
+  .root.ui3 .srcp .srs{display:block;grid-column:2 / 4;grid-row:2;align-self:start;font-size:12px;font-weight:500;line-height:1.35;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .srcp .srs:empty{display:none;}
+  .root.ui3 .srcp:has(.srs:empty) span,.root.ui3 .srcp:has(.srs:empty)>i{grid-row:1 / 3;align-self:center;margin-bottom:0;}
+  .root.ui3 .srcp.chg .sdot{display:block;position:absolute;left:35px;top:6px;width:9px;height:9px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 2px #1b1b22;}
+  /* siluetas mientras carga (sin animación: no gastan) */
+  .root.ui3 .sk{display:block;border-radius:8px;background:linear-gradient(90deg,var(--s2),var(--s3) 50%,var(--s2));}
+  .root.ui3 .sk-l{height:26px;width:85%;margin:4px 0;}
+  .root.ui3 .sk-m{height:16px;width:62%;margin:4px 0;}
+  .root.ui3 .sk-s{height:13px;width:46%;margin:3px 0;}
+  .root.ui3 .sk-xs{height:11px;width:34%;margin:3px 0;}
+  .root.ui3 .skel .cin{justify-content:flex-start;align-items:stretch;text-align:left;gap:0;}
+  .root.ui3 .skel .cvw.sk{box-shadow:none;border-radius:18px;}
+  .root.ui3 .skel .sk-r{width:48px;height:48px;border-radius:50%;}
+  .root.ui3 .sk-chips{display:flex;gap:6px;margin-top:10px;}
+  .root.ui3 .sk-chips .sk{width:64px;height:27px;border-radius:14px;}
+  .root.ui3 .skrows{padding:4px 0;}
+  .root.ui3 .skrow{display:flex;align-items:center;gap:12px;padding:9px 16px;}
+  .root.ui3 .sk-cv{width:52px;height:52px;border-radius:10px;flex:none;}
+  .root.ui3 .skt{flex:1;display:flex;flex-direction:column;}
+  /* pantallas por capas: títulos grandes y bloques con iconos de color */
+  .root.ui3 .pg{background:var(--bg);}
+  .root.ui3 .pg .ibtn{background:var(--s2);}
+  .root.ui3 .pgh{min-height:calc(var(--st) + 60px);padding-top:calc(var(--st) + 12px);}
+  .root.ui3 .pg:not(.sub) .pgh h2{font-size:34px;font-weight:850;letter-spacing:-.025em;}
+  .root.ui3 .pg.sub .pgh h2{font-size:22px;font-weight:800;letter-spacing:-.015em;}
+  .root.ui3 .pg .sec,.root.ui3 .srch .sec{margin:22px 4px 9px;font-size:19px;font-weight:750;letter-spacing:-.01em;text-transform:none;color:var(--fg);display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
+  .root.ui3 .pg .sec .svn,.root.ui3 .pg .sec a,.root.ui3 .srch .sec a{float:none;font-size:13px;font-weight:600;color:var(--mut);text-decoration:none;}
+  .root.ui3 .pg .sec a,.root.ui3 .srch .sec a{color:var(--acc);}
+  .root.ui3 .pgb>.sec:first-child{margin-top:8px;}
+  .root.ui3 .grp{background:var(--s1);border-radius:18px;overflow:hidden;}
+  .root.ui3 .grp .opt{padding:12px 14px;border-bottom:1px solid var(--line);font-size:16px;}
+  .root.ui3 .grp .opt:last-child{border-bottom:0;}
+  .root.ui3 .grp .opt>i{width:32px;height:32px;padding:6px;border-radius:9px;background:hsl(var(--ih,220),56%,48%);color:#fff;}
+  .root.ui3 .grp .opt.prow small{display:grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:12px;background:var(--acc);color:var(--accInk);font-size:12px;font-weight:800;}
+  .root.ui3 .grp .opt[disabled]{opacity:.45;}
+  .root.ui3 .grpx{margin-top:14px;}
+  .root.ui3 .grpx .opt>i{background:rgba(255,110,110,.16);color:#ff9090;}
+  .root.ui3 .grpf{padding:4px 14px 8px;}
+  .root.ui3 .grpf .lab:first-child{margin-top:10px;}
+  .root.ui3 .grpf .tg{border-bottom:0;}
+  .root.ui3 .note.pgsub{margin:0 4px;font-size:13.5px;}
+  .root.ui3 .note.okn{display:flex;align-items:center;gap:8px;margin-top:16px;padding:12px 14px;border-radius:14px;background:var(--s1);font-size:13.5px;}
+  .root.ui3 .note.okn i{width:18px;height:18px;flex:none;color:var(--acc);}
+  .root.ui3 .note.vnote{text-align:center;margin-top:18px;}
+  .root.ui3 .pgf{background:var(--bg);}
+  .root.ui3 .pgf .btn{height:50px;border-radius:16px;}
+  .root.ui3 .pgf .bpin{font-size:14px;line-height:1.15;white-space:normal;}
+  /* guardados: tarjetas en una fila que se desliza */
+  .root.ui3 .svcards{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:0 16px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;}
+  .root.ui3 .svcards::-webkit-scrollbar{display:none;}
+  .root.ui3 .svc{position:relative;flex:none;width:156px;border-radius:16px;background:var(--s1);box-shadow:inset 0 0 0 1.5px var(--line);}
+  .root.ui3 .svc.on{background:var(--accSoft);box-shadow:inset 0 0 0 1.5px var(--acc);}
+  .root.ui3 .svgo{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%;padding:12px;text-align:left;}
+  .root.ui3 .svi{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--s3);color:var(--mut);}
+  .root.ui3 .svi i{width:16px;height:16px;}
+  .root.ui3 .svc.on .svi{background:var(--acc);color:var(--accInk);}
+  .root.ui3 .svgo b{max-width:100%;font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .svgo small{font-size:12px;line-height:1.3;color:var(--mut);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .root.ui3 .svmore{position:absolute;right:2px;top:2px;width:40px;height:40px;display:grid;place-items:center;color:var(--dim);}
+  .root.ui3 .svmore i{width:18px;height:18px;}
+  .root.ui3 .svadd{width:118px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:12px;background:transparent;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.2);color:var(--mut);font-size:13px;font-weight:650;text-align:center;}
+  .root.ui3 .svadd i{width:22px;height:22px;}
+  /* BPM y tono */
+  .root.ui3 .bkv{gap:10px;padding:12px 0 2px;}
+  .root.ui3 .bkv input{width:100px;height:54px;font-size:23px;font-weight:800;}
+  .root.ui3 .bkv small{font-size:14px;color:var(--mut);}
+  .root.ui3 .bkb .presets{margin:10px 0 6px;}
+  .root.ui3 .kcn{margin:0 4px;}
+  .root.ui3 .kgrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:8px;}
+  .root.ui3 .kc{height:50px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background:hsla(var(--kh,220),70%,55%,.14);color:hsl(var(--kh,220),85%,72%);}
+  .root.ui3 .kc b{font-size:14.5px;font-weight:850;}
+  .root.ui3 .kc small{font-size:9.5px;font-weight:600;opacity:.85;white-space:nowrap;}
+  .root.ui3 .kc.on{background:hsl(var(--kh,220),72%,62%);color:#0b0b0e;}
+  /* Home */
+  .root.ui3 .hmh{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:calc(var(--st) + 16px) 4px 0;}
+  .root.ui3 .hmd{font-size:12.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);}
+  .root.ui3 .hmh h1{margin:2px 0 0;font-size:36px;font-weight:850;letter-spacing:-.03em;line-height:1.05;}
+  .root.ui3 .hmset{width:44px;height:44px;flex:none;}
+  .root.ui3 .hmcard{display:flex;width:100%;margin-top:14px;border-radius:20px;text-align:left;}
+  .root.ui3 .hmcont{align-items:center;gap:12px;padding:12px;background:linear-gradient(120deg,rgba(255,122,80,.17),var(--s1) 72%);}
+  .root.ui3 .hmcc{width:64px;height:64px;border-radius:12px;object-fit:cover;flex:none;background:var(--s3);}
+  .root.ui3 .hmct{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .root.ui3 .hmk{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--mut);}
+  .root.ui3 .hmct b{font-size:17px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .hmct small{font-size:13px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .hmbar{position:relative;height:3px;margin-top:6px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden;}
+  .root.ui3 .hmbar span{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);}
+  .root.ui3 .hmplay{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:var(--accInk);}
+  .root.ui3 .hmplay i{width:24px;height:24px;}
+  .root.ui3 .hmfol{flex-direction:column;align-items:stretch;gap:12px;padding:16px;cursor:pointer;background:linear-gradient(140deg,rgba(255,122,80,.2),rgba(255,122,80,.05));box-shadow:inset 0 0 0 1px var(--accLine);}
+  .root.ui3 .hmfol.none{background:var(--s1);box-shadow:none;}
+  .root.ui3 .hmtag{align-self:flex-start;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px;border-radius:12px;background:var(--acc);color:var(--accInk);font-size:11px;font-weight:850;letter-spacing:.06em;}
+  .root.ui3 .hmfol.none .hmtag{background:var(--s3);color:var(--mut);}
+  .root.ui3 .hmtag i{width:14px;height:14px;}
+  .root.ui3 .hmbig{display:flex;align-items:center;gap:14px;}
+  .root.ui3 .hmbig>b{font-size:46px;font-weight:850;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums;}
+  .root.ui3 .hmbig>span{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .root.ui3 .hmbig strong{font-size:17px;font-weight:750;}
+  .root.ui3 .hmbig small{font-size:13px;color:var(--mut);}
+  .root.ui3 .hmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .root.ui3 .hmcovs{display:flex;min-height:44px;}
+  .root.ui3 .hmsc{display:block;width:44px;height:44px;border-radius:11px;object-fit:cover;background:var(--s3);box-shadow:0 0 0 3px #1c1513;}
+  .root.ui3 .hmfol.none .hmsc{box-shadow:0 0 0 3px var(--s1);}
+  .root.ui3 .hmsc+.hmsc{margin-left:-12px;}
+  .root.ui3 .hmgo{flex:none;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:19px;background:rgba(255,255,255,.1);font-size:14px;font-weight:750;}
+  .root.ui3 .hmgo i{width:16px;height:16px;}
+  .root.ui3 .hmerr{font-size:14px;color:var(--mut);}
+  .root.ui3 .hmfol .sk-l{width:40%;height:40px;}
+  .root.ui3 .hmtiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+  .root.ui3 .hmtile{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 8px;min-height:106px;padding:14px;border-radius:18px;background:var(--s1);text-align:left;}
+  .root.ui3 .hmti{grid-column:1;grid-row:1;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:hsla(var(--ih),70%,55%,.18);color:hsl(var(--ih),85%,70%);}
+  .root.ui3 .hmti i{width:20px;height:20px;}
+  .root.ui3 .hmtile>b{grid-column:2;grid-row:1;justify-self:end;font-size:25px;font-weight:850;letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+  .root.ui3 .hmtt{grid-column:1 / 3;grid-row:2;margin-top:8px;font-size:16px;font-weight:700;}
+  .root.ui3 .hmtile small{grid-column:1 / 3;grid-row:3;font-size:12.5px;color:var(--mut);}
+  .root.ui3 .hmcombos{display:flex;flex-wrap:wrap;gap:8px;}
+  .root.ui3 .hmcombo{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:20px;background:var(--s1);box-shadow:inset 0 0 0 1px var(--line);font-size:14px;font-weight:650;}
+  .root.ui3 .hmcombo span{width:8px;height:8px;border-radius:50%;background:hsl(var(--ih,200),75%,62%);}
+  .root.ui3 .hmc0{color:var(--mut);}
+  .root.ui3 .hmc0 i{width:18px;height:18px;}
+  .root.ui3 .hmsims{display:flex;gap:12px;overflow-x:auto;margin:0 -16px;padding:0 16px 2px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;}
+  .root.ui3 .hmsims::-webkit-scrollbar{display:none;}
+  .root.ui3 .hmsim{flex:none;width:122px;display:flex;flex-direction:column;gap:5px;text-align:left;}
+  .root.ui3 .hmsimc,.root.ui3 .hmsim .sk-c{display:block;width:122px;height:122px;border-radius:14px;object-fit:cover;background:var(--s2);}
+  .root.ui3 .hmsim b{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .hmsim small{font-size:12.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .hmnote{padding:2px 4px;font-size:14px;color:var(--mut);}
+  .root.ui3 .hmstats{display:flex;gap:10px;padding:14px 16px;border-radius:18px;background:var(--s1);}
+  .root.ui3 .hmstats span{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .root.ui3 .hmstats b{font-size:24px;font-weight:850;font-variant-numeric:tabular-nums;}
+  .root.ui3 .hmstats small{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .hmnc{display:block;}
+  .root.ui3 .ghd{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:hsl(var(--gh,220),70%,60%);vertical-align:1px;}
+  .root.ui3 .gh{justify-content:flex-start;}
+  .root.ui3 .gh span{margin-left:auto;}
+  .root.ui3 .lhead:empty{display:none;}
+  /* «Listas» (el menú del selector) */
+  .root.ui3 .s-action[data-k=lists] .opt{background:var(--s2);padding:11px 14px;gap:12px;font-size:16px;}
+  .root.ui3 .s-action[data-k=lists] .opt:first-of-type{border-radius:16px 16px 0 0;}
+  .root.ui3 .s-action[data-k=lists] .opt:last-of-type{border-radius:0 0 16px 16px;border-bottom:0;}
+  .root.ui3 .s-action[data-k=lists] .opt.ofil{border-radius:16px;border-bottom:0;margin-bottom:14px;}
+  .root.ui3 .s-action[data-k=lists] .opt.ofil+.opt{border-radius:16px 16px 0 0;}
+  .root.ui3 .s-action[data-k=lists] .opt>i{width:34px;height:34px;padding:7px;border-radius:10px;background:hsl(var(--ih,220),56%,48%);color:#fff;}
+  .root.ui3 .s-action[data-k=lists] .opt.on .ol>span{color:var(--acc);}
+  .root.ui3 .obadge{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:12px;background:var(--acc);color:var(--accInk);font-size:12px;font-weight:800;}
+  .root.ui3 .ochk{flex:none;display:grid;place-items:center;}
+  .root.ui3 .opt .ochk i{width:22px;height:22px;color:var(--acc);}
+  .root.ui3 .sec .sect{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .root.ui3 .sec .hmall{flex:none;}
+  .root.ui3 .hmplaynew{background:var(--acc);color:var(--accInk);}
+  /* Chat (muy pronto) */
+  .root.ui3 .cht{display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 18px 0;text-align:center;}
+  .root.ui3 .chb{position:relative;width:116px;height:100px;margin-bottom:4px;}
+  .root.ui3 .chb1{position:absolute;left:0;top:6px;width:80px;height:62px;border-radius:22px 22px 22px 6px;background:var(--s2);}
+  .root.ui3 .chb2{position:absolute;right:0;bottom:0;width:80px;height:62px;border-radius:22px 22px 6px 22px;background:var(--acc);color:var(--accInk);display:grid;place-items:center;}
+  .root.ui3 .chb2 i{width:30px;height:30px;}
+  .root.ui3 .chs{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:13px;background:var(--accSoft);color:var(--acc);font-size:12px;font-weight:850;letter-spacing:.07em;}
+  .root.ui3 .cht h3{margin:4px 0 0;font-size:23px;font-weight:800;letter-spacing:-.02em;}
+  .root.ui3 .cht p{margin:0 0 10px;max-width:310px;font-size:15px;line-height:1.45;color:var(--mut);}
+  .root.ui3 .cht .btn{max-width:340px;}
+  .root.ui3 .cht .chline{background:transparent;box-shadow:inset 0 0 0 1px var(--line);}
+  /* buscador: recientes y explorar géneros */
+  .root.ui3 .srch{background:var(--bg);}
+  .root.ui3 .sq{height:50px;border-radius:16px;padding:0 14px;}
+  .root.ui3 .sq:focus{border-color:var(--acc);}
+  .root.ui3 .sgo{height:50px;border-radius:16px;}
+  .root.ui3 .srec{display:flex;align-items:center;border-bottom:1px solid var(--line);}
+  .root.ui3 .srec .opt{flex:1;min-width:0;border-bottom:0;padding:12px 4px;font-weight:550;}
+  .root.ui3 .srec .opt span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .srec .opt i{color:var(--dim);}
+  .root.ui3 .srx{width:40px;height:44px;color:var(--dim);}
+  .root.ui3 .srx i{width:18px;height:18px;}
+  .root.ui3 .snote{padding:12px 4px 0;}
+  .root.ui3 .sgen{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+  .root.ui3 .sgt{display:flex;align-items:flex-end;height:68px;padding:12px;border-radius:16px;text-align:left;font-size:15.5px;font-weight:800;line-height:1.15;color:#fff;
+    background:linear-gradient(135deg,hsl(var(--ih),56%,40%),hsl(calc(var(--ih) + 35),62%,21%));}
+  @media (orientation:portrait),(min-height:501px){
+    /* arriba: el selector de lista, grande, con sus filtros debajo; y Feed / Lista (barra «Ajustes») o los contadores (barra «Lista») */
+    .root.ui3{--top:calc(var(--st) + 72px);}
+    .root.ui3 .topbar{padding:calc(var(--st) + 12px) calc(var(--sr) + 14px) 10px calc(var(--sl) + 14px);}
+    .root.ui3 .app[data-view=list] .topbar{background:var(--bg);border-bottom:1px solid var(--line);}
+    .root.ui3 .tb-sp{display:none;}
+    .root.ui3 .srcp{display:grid;flex:1 1 auto;}
+    .root.ui3 .app.is-search .vseg{order:1;}
+    .root.ui3 .pg[data-id=home] .pgh{display:none;}
+    .root.ui3 .ibtn{width:44px;height:44px;background:rgba(27,27,34,.94);}
+    .root.ui3:not(.tabsb) .vseg{display:flex;flex:none;gap:2px;padding:4px;border-radius:16px;background:rgba(27,27,34,.94);}
+    .root.ui3 .vseg button{display:grid;place-items:center;width:40px;height:42px;border-radius:12px;color:var(--mut);}
+    .root.ui3 .vseg button i{width:21px;height:21px;}
+    .root.ui3 .vseg button.on{background:var(--acc);color:var(--accInk);}
+    .root.ui3:not(.tabsb) .dlleft{display:none;}
+    .root.ui3 .pill{height:44px;padding:0 13px;border-radius:16px;background:rgba(27,27,34,.94);font-size:14px;}
+    .root.ui3 .sqb{height:46px;border-radius:14px;background:var(--s2);}
+    .root.ui3 .srt{height:auto;margin:6px 0 12px 4px;font-size:34px;font-weight:850;letter-spacing:-.025em;line-height:1.1;}
+    /* en Home no va el mini: ya está «Sigue escuchando» */
+    .root.ui3 .app.over.hm .mini{display:none;}
+    .root.ui3 .app.hm.has-cur .pg{padding-bottom:var(--sb);}
+    .root.ui3 .app.hm .toasts,.root.ui3 .app.hm.has-cur .toasts{bottom:calc(var(--sb) + 14px);}
+    /* barra de pestañas */
+    .root.ui3 .tabs{background:#0d0d11;}
+    .root.ui3 .tabs button{gap:3px;font-size:10.5px;font-weight:600;color:rgba(244,244,247,.5);}
+    .root.ui3 .tabs button .tpi{display:grid;place-items:center;width:52px;height:29px;border-radius:15px;transition:background-color .2s;}
+    .root.ui3 .tabs button .tpi i{width:22px;height:22px;}
+    .root.ui3 .tabs button.on{color:var(--acc);font-weight:750;}
+    .root.ui3 .tabs button.on .tpi{background:var(--accSoft);}
+  }
+  `;
 
   /* ───────────────────────── app ───────────────────────── */
   let cur = null; // fuente que se está viendo (sección, artista, búsqueda…)
@@ -1295,7 +1641,12 @@
   };
   const pgOn = () => pgStack.length > 0;
   const overOn = () => pgOn() || !!(srchEl && srchEl.classList.contains('on'));
-  const paintOver = () => { if (app) app.classList.toggle('over', overOn()); };
+  const paintOver = () => {
+    if (!app) return;
+    app.classList.toggle('over', overOn());
+    // 2.2 · Diseño 2: en Home no va el mini (ya está «Sigue escuchando»)
+    app.classList.toggle('hm', ui3() && pgOn() && pgStack[pgStack.length - 1].id === 'home');
+  };
 
   const vpMeta = (() => {
     let m = $('meta[name="viewport"]');
@@ -1338,14 +1689,15 @@
     // nadie devolvía la página a su sitio ni reanudaba el modo de la barra. Se comprueba también en cada toque.
     host.addEventListener('touchstart', kbSync, { capture: true, passive: true });
 
-    sr.innerHTML = `<style>${APP_CSS}</style>
+    sr.innerHTML = `<style>${APP_CSS}${APP_CSS3}${APP_CSS3_LAND}</style>
       <div class="root">
         <div class="app" data-view="feed">
           <div class="feed"></div>
           <div class="list"></div>
           <div class="topbar">
             <button class="ibtn bnav" aria-label="Secciones">${i('menu')}</button>
-            <button class="srcp" aria-label="Elegir lista"><span></span>${i('chev')}</button>
+            <button class="srcp" aria-label="Elegir lista"><em class="sic"></em><span></span>${i('chev')}<small class="srs"></small><b class="sdot"></b></button>
+            <div class="vseg" role="group" aria-label="Vista"><button data-v="feed" aria-label="Vista Feed">${i('feed2')}</button><button data-v="list" aria-label="Vista Lista">${i('list2')}</button></div>
             <button class="sqb" aria-label="Cambiar la búsqueda">${i('search')}<span></span></button>
             <div class="seg"><button data-v="feed">Feed</button><button data-v="list">Lista</button></div>
             <div class="tb-sp"></div>
@@ -1434,8 +1786,11 @@
     $('.pgx', sr).addEventListener('click', pgClose);
     root.classList.toggle('dense', !!pref2('dense'));
     root.classList.toggle('bigtx', !!pref2('bigText'));
-    $$('.tabs button', sr).forEach((b) => b.addEventListener('click', () => tabGo(b.dataset.t)));
+    // (2.2: un solo oyente para toda la barra, porque el Diseño 2 cambia sus botones)
+    $('.tabs', sr).addEventListener('click', (e) => { const b = e.target.closest('button[data-t]'); if (b) tabGo(b.dataset.t); });
+    $$('.vseg button', sr).forEach((b) => b.addEventListener('click', () => { if (view !== b.dataset.v) setView(b.dataset.v); }));
     root.classList.toggle('ui2', !!prefs.ui2);
+    applyUi3();
     $('.dlleft', sr).addEventListener('click', () => toast(dlLeftText()));
     ctxEl.addEventListener('click', () => setView('list'));
     $('.bplay', sr).addEventListener('click', togglePlay);
@@ -1482,6 +1837,9 @@
     // al volver a Safari (o desbloquear), el feed se recoloca en la que está sonando
     const resync = () => { if (!document.hidden && isOpen && view === 'feed') holdFeed(350); };
     document.addEventListener('visibilitychange', resync);
+    // 2.2 · Diseño 2: la hora sin usarla se cuenta desde que se va; al volver tras más de una hora, Home
+    document.addEventListener('visibilitychange', () => { if (!ui3()) return; if (document.hidden) { if (isOpen) noteActive(true); } else homeIfIdle(); });
+    window.addEventListener('pagehide', () => { if (ui3() && isOpen) noteActive(true); });
     window.addEventListener('pageshow', resync);
     setupImmersive();
     let retryAt = 0;
@@ -1992,11 +2350,15 @@
   // Diseño nuevo: la barra de pestañas. Desde la 2.1, Buscar y Ajustes son pantallas propias.
   function tabGo(t) {
     if (t === 'feed' || t === 'list') {
+      const was = overOn() || !!$('.sheet.on', root);
       closeSheets();
       closeSearch();
       pgClose();
       // «Lista» nunca enseña una búsqueda (eso es la pestaña Buscar): se vuelve a la lista de debajo
       if (t === 'list' && cur && cur.kind === 'search') leaveSearch();
+      // Diseño 2 con la barra «Ajustes»: Feed es la pestaña de la música (feed o lista). Si venías de otra pantalla,
+      // vuelves a la vista en la que estabas; si ya estabas en ella, te lleva al feed.
+      else if (ui3() && !tabsB() && t === 'feed') { if (!was && view !== 'feed') setView('feed'); }
       else if (view !== t) setView(t);
     } else if (t === 'search') {
       closeSheets();
@@ -2004,22 +2366,76 @@
       searchTab();
     } else if (t === 'settings') {
       settingsGo();
+    } else if (t === 'home') {
+      homeGo();
     } else if (t === 'chat') {
-      toast('El chat llega en una próxima versión');
+      if (ui3()) { closeSheets(); closeSearch(); pgOpen('chat', null, { root: true }); } else toast('El chat llega en una próxima versión');
     }
     paintTabs();
   }
   function paintTabs() {
     if (!root) return;
     const st = $('.s-settings', root);
-    const on = pgOn() || (st && st.classList.contains('on')) ? 'settings'
-      : srchEl && srchEl.classList.contains('on') ? 'search'
-        : cur && cur.kind === 'search' && view === 'list' ? 'search' : view;
+    let on;
+    if (ui3()) {
+      // Diseño 2: Home y Chat son pantallas propias; Ajustes es su pestaña (o una capa de Home, con la barra «Lista»).
+      // Con la barra «Ajustes», Feed y Lista son la misma pestaña (Feed) y se cambia de vista arriba a la derecha.
+      const p0 = pgStack[0] && pgStack[0].id;
+      on = p0 === 'home' || p0 === 'chat' ? p0 : p0 ? (tabsB() ? 'home' : 'settings')
+        : srchEl && srchEl.classList.contains('on') ? 'search'
+          : cur && cur.kind === 'search' && view === 'list' ? 'search' : tabsB() ? view : 'feed';
+      $$('.vseg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
+    } else {
+      on = pgOn() || (st && st.classList.contains('on')) ? 'settings'
+        : srchEl && srchEl.classList.contains('on') ? 'search'
+          : cur && cur.kind === 'search' && view === 'list' ? 'search' : view;
+    }
     $$('.tabs button', root).forEach((b) => b.classList.toggle('on', b.dataset.t === on));
+    saveLastNav();
+  }
+  // 2.2 · Diseño 2: botones de la barra de pestañas según el ajuste «Barra de pestañas»
+  const TABS_UI2 = [['feed', 'feed', 'Feed'], ['list', 'rows', 'Lista'], ['search', 'search', 'Buscar'], ['chat', 'chat', 'Chat'], ['settings', 'sliders', 'Ajustes']];
+  const tabSet = () => (!ui3() ? TABS_UI2
+    : tabsB() ? [['home', 'home', 'Home'], ['feed', 'feed2', 'Feed'], ['list', 'list2', 'Lista'], ['search', 'search2', 'Buscar'], ['chat', 'chat2', 'Chat']]
+      : [['home', 'home', 'Home'], ['feed', 'feed2', 'Feed'], ['search', 'search2', 'Buscar'], ['chat', 'chat2', 'Chat'], ['settings', 'set2', 'Ajustes']]);
+  let tabsKey = 'feed,list,search,chat,settings'; // la barra que pinta buildShell (la del diseño nuevo)
+  function renderTabs() {
+    const box = root && $('.tabs', root);
+    if (!box) return;
+    const set = tabSet();
+    const k = set.map((x) => x[0]).join() + (ui3() ? '·3' : '');
+    if (k === tabsKey) return;
+    tabsKey = k;
+    box.innerHTML = set.map(([t, ic, n]) => `<button data-t="${t}">${ui3() ? '<span class="tpi">' + i(ic) + '</span>' : i(ic)}<span>${n}</span></button>`).join('');
+  }
+  function applyUi3(full) {
+    if (!root) return;
+    const on = ui3();
+    root.classList.toggle('ui3', on);
+    root.classList.toggle('tabsb', tabsB());
+    renderTabs();
+    if (!full) return;
+    if (!on && pgStack.length && /^(home|chat)$/.test(pgStack[0].id)) pgClose();
+    paintChrome();
+    paintTabs();
+    // filas y tarjetas llevan piezas propias del Diseño 2 (tono de color, NUEVA…): repintarlas
+    if (cur) {
+      listDirty = true;
+      if (view === 'list' && isOpen) renderList(true);
+      filled.forEach((c) => { const t = byId.get(c.dataset.id); if (t) fillCard(c, t); });
+      requestAnimationFrame(() => { layoutCards(); if (view === 'feed') feedJump(activeIdx); });
+    }
+  }
+  function homeGo() {
+    closeSheets();
+    closeSearch();
+    pgOpen('home', null, { root: true });
   }
   function applyUi() {
     if (!root) return;
     root.classList.toggle('ui2', !!prefs.ui2);
+    if (!prefs.ui2 && prefs.ui3) { prefs.ui3 = false; savePrefs(); }
+    applyUi3(true);
     if (!prefs.ui2) pgClose();
     paintChrome();
     paintTabs();
@@ -2149,6 +2565,7 @@
         history.replaceState(history.state, '', location.pathname + location.search + '#' + h);
       } catch (e) {}
       saveNav();
+      saveLastNav();
     }, 350);
   }
 
@@ -2336,7 +2753,15 @@
     // diseño nuevo: en los resultados de una búsqueda, arriba va el campo con lo buscado (pestaña Buscar)
     app.classList.toggle('is-search', !!cur && cur.kind === 'search');
     $('.sqb span', root).textContent = cur && cur.kind === 'search' ? cur.query || cur.title : '';
-    $('.srcp span', root).textContent = cur ? (kindName(cur) ? kindName(cur) + ' · ' : '') + cur.title : 'Soundeo';
+    $('.srcp span', root).textContent = cur ? (kindName(cur) && !ui3() ? kindName(cur) + ' · ' : '') + cur.title : 'Soundeo';
+    if (ui3()) {
+      const SIC = { avail: 'dl', all: 'feed2', upcoming: 'calendar', top100: 'trophy', followed: 'users', favs: 'star', downloads: 'check', votes: 'heart' };
+      const KIC = { artist: 'user', label: 'tag', release: 'disc', search: 'search2', genre: 'note', similar: 'spark' };
+      const k = cur ? (cur.kind === 'section' || cur.key === 'votes' ? SIC[cur.key] : KIC[cur.kind]) : null;
+      $('.srcp .sic', root).innerHTML = ICON[k || 'list2'];
+      $('.srcp .srs', root).textContent = !cur ? '' : cur.canFilter ? describeFilters(cur.filters) : cur.key === 'followed' ? 'Sin filtros' : kindName(cur) || (cur.key === 'votes' ? 'Tus votos' : '');
+      $('.srcp', root).classList.toggle('chg', !!(cur && cur.canFilter && cur.filters && comboKey(cur.filters) !== comboKey(defFilters)));
+    }
     // en el feed, una etiqueta con dónde estás (salvo en la sección de siempre)
     const show = !!cur && (deep || cur.key !== startListKey() || cur.kind !== 'section');
     app.classList.toggle('has-ctx', show);
@@ -2361,7 +2786,7 @@
     const known = opts.root ? [liveSrc, queue && queue.stack.length === 1 ? queue.src : null].find((x) => x && x.loaded && !x.error && x.kind === d.kind && sameUrl(x.url, d.url)) : null;
     // `opts.src`: una fuente que ya se tenía (la última búsqueda), tal como se dejó
     let s = opts.src || known || mkSrc(d);
-    if (s !== opts.src && s !== known) keepReset(s); // lista abierta de nuevo: visita nueva (2.1.9)
+    if (s !== opts.src && s !== known && !opts.resume) keepReset(s); // lista abierta de nuevo: visita nueva (2.1.9)
     if (opts.root) stack = [s];
     else if (opts.replace) stack[stack.length - 1] = s;
     else {
@@ -2483,11 +2908,12 @@
     s.release = info.release;
     s.msg = info.msg;
     s.filtersOn = info.filtersOn;
-    if (info.title && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
+    if (info.title && s.key !== 'votes' && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
     s.mode = listModeFor(s.tracks);
     s.hidden = s.hide ? hiddenFor(s.tracks, s) : new Set();
     s.forced = new Set();
     if (s.at) s.forced.add(s.at);
+    if (ui3() && s.key === 'followed' && s.tracks.length) folOpened(s); // 2.2: lo nuevo desde la última vez
     s.probe = null;
     if (!info.tracks.length) {
       // sin tracks: guardar cómo es la página (para el diagnóstico) y avisar si Soundeo ha mandado a otro sitio
@@ -2558,10 +2984,31 @@
     } catch (e) {}
   }
   function openMenu() {
+    if (ui3()) { openMenu3(); return; }
     const here = stack.length === 1 && cur && cur.kind === 'section' ? cur.key : '';
     const opts = SECTIONS.map((sec) => ({ label: sec.name, hint: sec.hint, icon: sec.icon, small: here === sec.key ? '●' : '', fn: () => openSection(sec.key) }));
     opts.push({ label: 'Buscar', hint: 'Como el buscador de la web', icon: 'search', fn: () => openSearch() });
     actionSheet('Secciones', '', '', opts);
+  }
+
+  // 2.2 · Diseño 2: «Listas», con su color cada una, la marca en la que estás, lo nuevo de Seguidos y los filtros arriba
+  function openMenu3() {
+    const here = stack.length === 1 && cur ? (cur.kind === 'section' || cur.key === 'votes' ? cur.key : '') : '';
+    const IC = { avail: ['dl', 200], all: ['feed2', 230], upcoming: ['calendar', 160], top100: ['trophy', 45], followed: ['users', 280], favs: ['star', 30], downloads: ['check', 340] };
+    const fc = folCache || LS.get('folCache', null);
+    const nf = fc && Array.isArray(fc.tracks) ? folNewOf(fc.tracks, folSeen()).length : 0;
+    const opts = [];
+    if (cur && cur.canFilter) opts.push({ label: 'Filtros de esta lista', hint: describeFilters(cur.filters), icon: 'funnel', hue: 20, cls: 'ofil', fn: () => filtersGo() });
+    SECTIONS.forEach((sec) => {
+      const ic = IC[sec.key] || [sec.icon, 220];
+      opts.push({ label: sec.name, hint: sec.hint, icon: ic[0], hue: ic[1], on: here === sec.key, badge: sec.key === 'followed' && nf ? nf + (nf === 1 ? ' nueva' : ' nuevas') : '', fn: () => openSection(sec.key) });
+    });
+    opts.push({ label: 'Mis me gusta', hint: 'Los tracks que has votado', icon: 'heart', hue: 345, on: here === 'votes', fn: openVotes });
+    actionSheet('Listas', '', '', opts, 'lists');
+  }
+  function openVotes() {
+    if (stack.length === 1 && cur && cur.key === 'votes' && !cur.error && !cur.needLogin) { toast('Ya estás en Mis me gusta'); return; }
+    openSource({ kind: 'page', key: 'votes', title: 'Mis me gusta', url: location.origin + '/account/votes' }, { root: true, view: 'list' });
   }
 
   /* ───────────── buscador ───────────── */
@@ -2590,6 +3037,7 @@
     const body = $('.sbody', srchEl);
     const rec = LS.get('searches', []);
     body.textContent = '';
+    if (ui3()) { paintRecent3(body, rec); return; }
     if (!rec.length) {
       body.appendChild(el('<div class="note" style="padding:18px 4px">Busca por artista, título o sello. Los resultados salen como lista de tracks.</div>'));
       return;
@@ -2603,6 +3051,32 @@
     const clr = el('<button class="opt" style="color:var(--mut)"><span>Borrar recientes</span></button>');
     clr.addEventListener('click', () => { LS.set('searches', []); paintRecent(); });
     body.appendChild(clr);
+  }
+  // 2.2 · Diseño 2: recientes (cada una se puede quitar) y «Explorar géneros», con los tuyos primero
+  function paintRecent3(body, rec) {
+    if (rec.length) {
+      body.appendChild(el('<div class="sec">Recientes <a href="#" class="rclr">Borrar</a></div>'));
+      rec.slice(0, 8).forEach((q) => {
+        const r = el(`<div class="srec"><button class="opt srq">${i('clock')}<span>${esc(q)}</span></button><button class="rb srx" aria-label="Quitar ${esc(q)}">${i('xs')}</button></div>`);
+        $('.srq', r).addEventListener('click', () => doSearch(q));
+        $('.srx', r).addEventListener('click', () => { LS.set('searches', LS.get('searches', []).filter((x) => x !== q)); paintRecent(); });
+        body.appendChild(r);
+      });
+      $('.rclr', body).addEventListener('click', (e) => { e.preventDefault(); LS.set('searches', []); paintRecent(); });
+    } else body.appendChild(el('<div class="note snote">Busca por artista, título o sello. Los resultados salen como lista de tracks.</div>'));
+    const all = genreOptions();
+    const mine = (defFilters.genres || []).map(String);
+    const pick = mine.concat(['12', '5', '11', '14', '81', '86', '15', '1', '2', '7', '6', '90'])
+      .filter((id, k, a) => a.indexOf(id) === k && all.some((g) => g.id === id)).slice(0, 10);
+    if (!pick.length) return;
+    body.appendChild(el('<div class="sec">Explorar géneros</div>'));
+    const g = el('<div class="sgen"></div>');
+    pick.forEach((id) => {
+      const b = el(`<button class="sgt" style="--ih:${genreHue(genreName(id))}">${esc(genreName(id))}</button>`);
+      b.addEventListener('click', () => { closeSearch(); openSource(genreDesc(id), { view: 'list' }); });
+      g.appendChild(b);
+    });
+    body.appendChild(g);
   }
   function doSearch(q) {
     q = clean(q);
@@ -2787,7 +3261,7 @@
               <div class="mix">${esc(t.mix)}</div>
               <div class="art">${esc(t.artist)}</div>
               <div class="rel">${t.release ? '<span class="relb">' + esc(t.release) + '</span>' : ''}${t.release && t.label ? ' · ' : ''}${t.label ? '<span class="lbl">' + esc(t.label) + '</span>' : ''}</div>
-              <div class="chips"><span class="chip key">${metaChipKey(meta)}</span><span class="chip bpmc">${metaChipBpm(meta)}</span>${t.duration ? `<span class="chip mut">${esc(t.duration)}</span>` : ''}${t.explicit ? '<span class="chip e">E</span>' : ''}${t.date ? `<span class="chip mut">${esc(t.date)}</span>` : ''}</div>
+              <div class="chips"><span class="chip key"${ui3() && meta && meta.k && keyHue(meta.k) != null ? ` style="--kh:${keyHue(meta.k)}"` : ''}>${metaChipKey(meta)}</span><span class="chip bpmc">${metaChipBpm(meta)}</span>${t.duration ? `<span class="chip mut">${esc(t.duration)}</span>` : ''}${t.explicit ? '<span class="chip e">E</span>' : ''}${t.date ? `<span class="chip mut">${esc(t.date)}</span>` : ''}</div>
             </div>
             <div class="rail">
               <button class="rbtn fav" aria-label="Guardar">${i('star')}</button>
@@ -2954,6 +3428,7 @@
     else if (more) { h = 'Cargando más…'; p = 'Trayendo más tracks de Soundeo.'; }
     else if (deck.length) { h = 'Has llegado al final'; p = 'No hay más tracks en esta lista.'; }
     else { h = 'Nada nuevo aquí'; p = 'Ya has escuchado todo lo de esta lista.'; }
+    if (ui3() && s.loading && !tracks.length) return el(skelCard());
     const c = el(`<section class="card end"><div class="cin">
       <h3>${esc(h)}</h3>
       <p>${esc(p)}</p>
@@ -3243,13 +3718,16 @@
     if (c) {
       const k = $('.chip.key', c);
       const b = $('.chip.bpmc', c);
-      if (k) k.innerHTML = metaChipKey(m);
+      if (k) { k.innerHTML = metaChipKey(m); if (ui3() && m.k && keyHue(m.k) != null) k.style.setProperty('--kh', keyHue(m.k)); }
       if (b) b.innerHTML = metaChipBpm(m);
     }
     const r = listRowById(t.id);
     if (r) {
       const x = $('.rx', r);
-      if (x && (m.b || m.k)) { const tx = metaLine(t); if (x.textContent !== tx) x.textContent = tx; }
+      if (x && (m.b || m.k)) {
+        if (ui3()) { const hh = rowMeta3(t); if (x.innerHTML !== hh) x.innerHTML = hh; }
+        else { const tx = metaLine(t); if (x.textContent !== tx) x.textContent = tx; }
+      }
     }
   }
   function refreshCovers() {
@@ -3270,6 +3748,24 @@
     if (m && m.k) bits.push(keyText(m.k));
     bits.push(t.genre, t.label, t.duration);
     return bits.filter(Boolean).join(' · ');
+  }
+  // 2.2 · Diseño 2: el tono de cada fila va en una etiqueta con su color de la rueda Camelot (un color por número)
+  // 2.2 · Diseño 2: cada género con su color (siempre el mismo)
+  const genreHue = (name) => { let h = 7; String(name || '').split('').forEach((c) => { h = (h * 31 + c.charCodeAt(0)) >>> 0; }); return (h % 24) * 15; };
+  function keyHue(k) {
+    const c = camelot(k);
+    const n = c ? parseInt(c, 10) : 0;
+    return n >= 1 && n <= 12 ? ((n - 1) * 30 + 150) % 360 : null;
+  }
+  function rowMeta3(t) {
+    const m = metaCache[t.id];
+    const bits = [];
+    if (t.rank) bits.push('#' + t.rank);
+    if (m && m.b) bits.push(m.b + ' BPM');
+    bits.push(t.genre, t.label, t.duration);
+    const h = m && m.k ? keyHue(m.k) : null;
+    const kc = m && m.k ? `<span class="rk"${h != null ? ` style="--kh:${h}"` : ''}>${esc(keyText(m.k))}</span>` : '';
+    return kc + esc(bits.filter(Boolean).join(' · '));
   }
   let listDay = 0; // 0 = el día más reciente cargado (solo en listas "por días")
   let listOrder = []; // ids en el orden en que se ven en la lista
@@ -3300,7 +3796,7 @@
     const src = coverAt(t.cover, coverSize && +coverSize <= 150 ? coverSize : '110');
     return `<div class="row${isHeard(t) ? ' heard' : ''}${current && current.id === t.id ? ' cur' : ''}" data-id="${esc(t.id)}">` +
       `<img class="rc" alt="" loading="lazy" decoding="async" src="${esc(src)}" data-fb="${esc(t.cover)}">` +
-      `<div class="rm"><div class="rt">${esc(t.name)}${t.mix ? ' <small>' + esc(t.mix) + '</small>' : ''}</div><div class="ra">${esc(t.artist)}</div><div class="rx">${esc(metaLine(t))}</div></div>` +
+      `<div class="rm"><div class="rt">${isNewFol(t) ? '<em class="rnew">NUEVA</em>' : ''}${esc(t.name)}${t.mix ? ' <small>' + esc(t.mix) + '</small>' : ''}</div><div class="ra">${esc(t.artist)}</div><div class="rx">${ui3() ? rowMeta3(t) : esc(metaLine(t))}</div></div>` +
       `<button class="rb rfav${fav ? ' on' : ''}" aria-label="Guardar"><i>${fav ? ICON.starOn : ICON.star}</i></button>` +
       (t.downloads.length ? `<button class="rb rdl${done ? ' done' : ''}" aria-label="Descargar">${i(done ? 'check' : 'dl')}</button>` : t.vote ? `<button class="rb rvote${isVoted(t) ? ' on' : ''}" aria-label="Me gusta">${voteInner(t)}</button>` : '') +
       '</div>';
@@ -3326,6 +3822,7 @@
   function listHead() {
     const s = cur;
     const head = el('<div class="lhead"></div>');
+    if (s.canFilter && ui3()) return head;
     if (s.canFilter) {
       const b = el(`<button class="fsum">${i('sliders')}<span><b>${esc(s.title)}</b><small>${esc(describeFilters(s.filters))}${s.cut ? ' · género filtrado aquí' : ''}</small></span></button>`);
       b.addEventListener('click', () => filtersGo());
@@ -3333,12 +3830,21 @@
       return head;
     }
     const sub = sourceSub(s);
+    let fnewEl = null;
     const h = el(`<div class="shead">${s.release && s.release.cover ? '<img class="scov" alt="">' : ''}<div class="stx">${kindName(s) ? '<div class="skind">' + esc(kindName(s)) + '</div>' : ''}<div class="stitle">${esc(s.title)}</div>${sub ? '<div class="ssub">' + esc(sub) + '</div>' : ''}</div>${s.follow ? '<button class="btn fol"></button>' : ''}</div>`);
     const cov = $('.scov', h);
     if (cov) cov.src = s.release.cover;
+    if (ui3() && s.key === 'followed') {
+      const n = tracks.filter((t) => folNew.has(t.id)).length;
+      const nb = el(`<div class="fnew">${n ? `<span class="fnb">${n} ${n === 1 ? 'nueva' : 'nuevas'}</span><button class="btn pri fplay">${i('play')}Escuchar las nuevas</button>` : '<span class="fnz">Nada nuevo desde la última vez</span>'}</div>`);
+      const fp = $('.fplay', nb);
+      if (fp) fp.addEventListener('click', playNewFol);
+      fnewEl = nb;
+    }
     const fol = $('.fol', h);
     if (fol) fol.addEventListener('click', () => toggleFollow(s));
     head.appendChild(h);
+    if (fnewEl) head.appendChild(fnewEl);
     if (s.kind === 'release' && s.release) {
       const chips = el('<div class="schips"></div>');
       (s.release.artists || []).slice(0, 4).forEach((a) => {
@@ -3360,8 +3866,14 @@
     }
     return head;
   }
+  // 2.2 · Diseño 2: siluetas mientras carga, con la forma de lo que va a salir
+  const skelCard = () => `<section class="card end skel"><div class="cin"><div class="mid"><div class="top"><div class="cvw sk"></div></div>
+    <div class="info"><div class="itext"><span class="sk sk-xs"></span><span class="sk sk-l"></span><span class="sk sk-m"></span><span class="sk sk-s"></span><span class="sk-chips"><span class="sk"></span><span class="sk"></span><span class="sk"></span></span></div>
+    <div class="rail"><span class="sk sk-r"></span><span class="sk sk-r"></span><span class="sk sk-r"></span></div></div></div></div></section>`;
+  const skelRows = () => '<div class="skrows">' + '<div class="skrow"><span class="sk sk-cv"></span><span class="skt"><span class="sk sk-m"></span><span class="sk sk-s"></span><span class="sk sk-xs"></span></span></div>'.repeat(7) + '</div>';
   function emptyBlock() {
     const s = cur;
+    if (ui3() && s.loading) return el(skelRows());
     const login = !s.loading && s.needLogin;
     const e = el(`<div class="lempty">${s.loading ? 'Cargando…' : s.error ? 'No se ha podido cargar: ' + esc(s.error) : esc(siteMsg(s))}
       <div class="stack" style="align-items:center">${login ? '<button class="btn pri blogin">Iniciar sesión</button>' : ''}${s.error || (!s.loading && s.bounced) ? '<button class="btn' + (login ? '' : ' pri') + ' bretry">Reintentar</button>' : ''}${!s.loading && s.url && !login ? '<button class="btn bweb">Abrir en la web</button>' : ''}${s.key === 'followed' && !s.loading && !login ? '<button class="btn bfed">Editar seguidos en la web</button>' : ''}</div>${login ? '<div class="note" style="margin-top:16px">¿Es una pestaña privada (incógnito)? Ahí Safari no guarda tu sesión: abre Soundeo en una pestaña normal y no tendrás que iniciarla.</div>' : ''}</div>`);
@@ -3443,7 +3955,7 @@
       if (t.genre !== lastGenre) {
         lastGenre = t.genre;
         const n = shown.filter((x) => x.genre === t.genre).length;
-        html += `<div class="gh">${esc(t.genre || 'Otros')} <span>${n}</span></div>`;
+        html += `<div class="gh">${ui3() ? '<b class="ghd" style="--gh:' + genreHue(t.genre || 'Otros') + '"></b>' : ''}${esc(t.genre || 'Otros')} <span>${n}</span></div>`;
       }
       html += rowHtml(t);
     });
@@ -3700,6 +4212,7 @@
       pl.prevId = current ? current.id : null;
       current = t;
       seekTarget = null;
+      if (play) saveLastPlay(t);
       if (!t.preview && play) toast('Este track no tiene preview');
       const pre = prefs.preload && !pl.broken && !document.hidden && t.preview ? players.find((a) => a !== audio && a._sxId === t.id && !a.error) : null;
       if (pre) {
@@ -3888,7 +4401,7 @@
   onAudio('timeupdate', () => {
     const now = performance.now();
     if (now - lastProgPaint > 240) { lastProgPaint = now; paintProgress(); }
-    if (current && !audio.paused && audio.currentTime >= HEARD_AFTER) { if (!heard.has(current.id)) markHeard(current.id); keepNote(current.id); }
+    if (current && !audio.paused && audio.currentTime >= HEARD_AFTER) { if (!heard.has(current.id)) markHeard(current.id); keepNote(current.id); if (ui3()) noteActive(); }
     if (wantPlay && now - aheadAt > 2500) preloadAhead();
   });
   onAudio('ended', () => {
@@ -4408,16 +4921,18 @@
     $$('.sheet.on', root).forEach((s) => s.classList.remove('on'));
     paintTabs();
   }
-  function actionSheet(title, sub, note, opts) {
+  function actionSheet(title, sub, note, opts, kind) {
     const s = $('.s-action', root);
+    s.dataset.k = kind || ''; // 2.2 · Diseño 2: «lists» = el menú del selector
     $('h2', s).textContent = title;
     const b = $('.sb', s);
     b.innerHTML = (sub ? `<div class="asub">${esc(sub)}</div>` : '') + (note ? `<div class="note" style="margin:0 0 6px">${esc(note)}</div>` : '');
     opts.forEach((o) => {
       const txt = o.hint ? `<span class="ol"><span>${esc(o.label)}</span><em>${esc(o.hint)}</em></span>` : `<span>${esc(o.label)}</span>`;
-      const inner = `${o.icon ? i(o.icon) : ''}${txt}${o.small ? '<small>' + esc(o.small) + '</small>' : ''}`;
+      const inner = `${o.icon ? i(o.icon) : ''}${txt}${o.small ? '<small>' + esc(o.small) + '</small>' : ''}${o.badge ? '<b class="obadge">' + esc(o.badge) + '</b>' : ''}${o.on ? '<span class="ochk">' + i('check') + '</span>' : ''}`;
       // con `href` es un enlace de verdad (para que el iPhone abra la app de destino); si no, un botón
-      const x = o.href ? el(`<a class="opt" target="_blank" rel="noopener" href="${esc(o.href)}">${inner}</a>`) : el(`<button class="opt${o.pri ? ' pri' : ''}"${o.disabled ? ' disabled' : ''}>${inner}</button>`);
+      const x = o.href ? el(`<a class="opt" target="_blank" rel="noopener" href="${esc(o.href)}">${inner}</a>`) : el(`<button class="opt${o.pri ? ' pri' : ''}${o.cls ? ' ' + o.cls : ''}${o.on ? ' on' : ''}"${o.disabled ? ' disabled' : ''}>${inner}</button>`);
+      if (o.hue != null) x.style.setProperty('--ih', String(o.hue));
       if (o.href) x.addEventListener('click', () => setTimeout(closeSheets, 400));
       else if (!o.disabled) x.addEventListener('click', () => { closeSheets(); o.fn(); });
       b.appendChild(x);
@@ -4629,9 +5144,514 @@
     if (savedFilters.length >= MAX_SAVED) { toast('Ya hay ' + MAX_SAVED + ' guardados: borra uno para guardar otro'); return; }
     pgOpen('f-name', { id: null });
   }
+  /* ───────────── 2.2 · Diseño 2: Home, lo nuevo de Seguidos, «Sigue escuchando» y la regla de la hora ───────────── */
+  const HOUR = 3600000;
+  const folUrl = () => sectionUrl(sectionByKey('followed'), {});
+  // lo marcado como NUEVA en Seguidos durante esta pestaña (se suma si se vuelve a entrar)
+  let folNew = new Set(SS.get('folNew', []));
+  let folCache = null; // { t, tracks } — la página 1 de Seguidos, para Home (vale 10 minutos)
+  let folBusy = null;
+  const isNewFol = (t) => ui3() && !!cur && cur.key === 'followed' && folNew.has(t.id);
+  const folSeen = () => LS.get('folSeen', null); // { t, ids, day }: lo que había la última vez que se abrió Seguidos
+  const folMini = (list) => list.slice(0, 100).map((t) => ({ id: t.id, name: t.name, artist: t.artist, mix: t.mix, cover: t.cover }));
+  // Nuevo = no estaba la última vez y es más reciente que lo más antiguo de entonces (los ids de Soundeo crecen con el
+  // tiempo). Así, si algo antiguo entra en la página 1 porque otra cosa sale (dejar de seguir a alguien), no cuenta.
+  // (La fecha que enseña Soundeo es la de lanzamiento, no la de subida: no sirve para esto.)
+  const numId = (id) => (/^\d+$/.test(String(id)) ? +id : NaN);
+  function folNewOf(list, seen) {
+    if (!seen || !Array.isArray(seen.ids)) return [];
+    const ids = new Set(seen.ids);
+    const nums = seen.ids.map(numId).filter(isFinite);
+    const min = nums.length ? Math.min.apply(null, nums) : NaN;
+    return list.filter((t) => t.id && !ids.has(t.id) && !(numId(t.id) < min));
+  }
+  function folMark(list) {
+    LS.set('folSeen', { t: Date.now(), ids: list.slice(0, 100).map((t) => t.id) });
+  }
+  // Al abrir Seguidos: se marca lo nuevo desde la última vez y lo de ahora pasa a ser «lo visto»
+  function folOpened(s) {
+    const seen = folSeen();
+    folNewOf(s.tracks, seen).forEach((t) => folNew.add(t.id));
+    SS.set('folNew', Array.from(folNew));
+    folMark(s.tracks);
+    folCache = { t: Date.now(), tracks: folMini(s.tracks) };
+    LS.set('folCache', folCache);
+  }
+  function folFetch(force) {
+    const c = folCache || LS.get('folCache', null);
+    if (!force && c && Array.isArray(c.tracks) && Date.now() - c.t < 10 * 60000) { folCache = c; return Promise.resolve(c); }
+    if (folBusy) return folBusy;
+    // como al abrir Seguidos: sin filtros y, si Soundeo no contesta bien así, como siempre
+    const tmp = { key: 'followed', url: folUrl(), xhr: false };
+    folBusy = fetchSource(tmp).then(({ doc }) => {
+      const info = readDoc(doc, tmp.url);
+      if (!info.tracks.length && !$('#top-menu-logout, a[href*="/account/logout"]', doc)) throw new Error('sin sesión');
+      folCache = { t: Date.now(), tracks: folMini(info.tracks) };
+      LS.set('folCache', folCache);
+      if (!folSeen() && info.tracks.length) { folMark(info.tracks); folCache.first = true; }
+      return folCache;
+    }).finally(() => { folBusy = null; });
+    return folBusy;
+  }
+  // «Sigue escuchando»: la última canción que sonó y la lista de la que venía
+  const navDesc = (s) => (s ? { kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr, refId: s.refId, query: s.query, web: s.web } : null);
+  function saveLastPlay(t) {
+    if (!ui3() || !t) return;
+    const s = cur && byId.has(t.id) ? cur : queue && queue.src && queue.src.tracks.includes(t) ? queue.src : cur;
+    LS.set('lastPlay', { t: Date.now(), id: t.id, name: t.name, artist: t.artist, mix: t.mix, cover: t.cover, trackUrl: t.trackUrl, src: s && s.kind !== 'similar' ? navDesc(s) : null, srcTitle: s ? s.title : '' });
+  }
+  // Escuchadas hoy (para «Hoy» en Home)
+  const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+  function countHeardToday() {
+    const c = LS.get('heardToday', null);
+    const k = todayKey();
+    LS.set('heardToday', { d: k, n: c && c.d === k ? (c.n || 0) + 1 : 1 });
+  }
+  const heardTodayN = () => { const c = LS.get('heardToday', null); return c && c.d === todayKey() ? c.n || 0 : 0; };
+  // Actividad: con la app abierta y a la vista, o con música sonando
+  let actT = 0;
+  function noteActive(force) {
+    const now = Date.now();
+    if (!force && now - actT < 30000) return;
+    actT = now;
+    LS.set('lastActive', now);
+  }
+  // Dónde estaba (pestaña, lista, canción), para volver ahí si se abre antes de una hora
+  const tabNow = () => (pgStack[0] ? pgStack[0].id : srchEl && srchEl.classList.contains('on') ? 'search' : null);
+  let lastNavT = 0;
+  function saveLastNav() {
+    if (!ui3()) return;
+    clearTimeout(lastNavT);
+    lastNavT = setTimeout(() => {
+      if (!cur || !isOpen) return;
+      const t = deck[activeIdx];
+      LS.set('lastNav', { t: Date.now(), src: cur.kind === 'similar' ? null : navDesc(cur), at: view === 'feed' ? (t ? t.id : null) : current ? current.id : null, view, tab: tabNow() });
+    }, 400);
+  }
+  // Más de una hora sin usarla: al volver se abre en Home, como recién arrancada
+  function homeIfIdle() {
+    if (!ui3() || !isOpen || document.hidden) return;
+    const last = LS.get('lastActive', 0);
+    if (audio && !audio.paused) { noteActive(true); return; }
+    if (last && Date.now() - last > HOUR) { closeSheets(); homeGo(); }
+    noteActive(true);
+  }
+  // Arranque con el Diseño 2: Home si hace más de una hora; si no, la pestaña donde se estaba.
+  function ui3Boot(cont) {
+    if (!ui3() || !isOpen) return;
+    const last = LS.get('lastActive', 0);
+    noteActive(true);
+    if (!last || Date.now() - last > HOUR) { homeGo(); return; }
+    const ln = cont || LS.get('lastNav', null);
+    if (!ln || !ln.tab) return;
+    if (ln.tab === 'home') homeGo();
+    else if (ln.tab === 'chat') pgOpen('chat', null, { root: true });
+    else if (ln.tab === 'settings') { if (tabsB()) { homeGo(); pgOpen('settings'); } else settingsGo(); }
+    else if (ln.tab === 'search') searchTab();
+  }
+  // Home: Parecidas a lo que suena (o a lo último que sonó), pedidas al enseñarse y guardadas mientras no cambie
+  let homeSim = null; // { id, src, list }
+  function similarFor(t) {
+    if (homeSim && homeSim.id === t.id) return Promise.resolve(homeSim);
+    const src = mkSrc({ kind: 'similar', title: t.name, xhr: true, web: t.trackUrl || '', url: location.origin + '/tracks/recommend/' + encodeURIComponent(t.id) });
+    return fetchSimilar(src).then(({ doc, finalUrl }) => {
+      applyDoc(src, doc, finalUrl);
+      src.loaded = true;
+      homeSim = { id: t.id, src, list: src.tracks.slice() };
+      return homeSim;
+    }, (e) => {
+      // Soundeo no tiene ese bloque para esta canción: es «no hay», no un fallo
+      if (!(e && e.none)) throw e;
+      homeSim = { id: t.id, src, list: [] };
+      return homeSim;
+    });
+  }
+  const homeDate = () => {
+    try { return new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' }).replace('.', ''); } catch (e) { return ''; }
+  };
+  const fmtN = (n) => (n == null ? '–' : String(n));
+  // Ir a lo que se estaba escuchando (desde «Sigue escuchando»): su lista, en esa canción y con lo ya escuchado detrás
+  function resumeLast(lp) {
+    pgClose();
+    if (!lp || !lp.id) { setView('feed'); return; }
+    if (current && current.id === lp.id) {
+      showCurrentInFeed();
+      if (audio.paused) togglePlay();
+      return;
+    }
+    const k = lp.src ? keepKey(lp.src) : '';
+    const back = keepRestore(k);
+    const here = cur && byId.has(lp.id) && (!lp.src || !lp.src.url || sameUrl(lp.src.url, cur.url));
+    if (here) {
+      // en la lista que se ve: suena ya (dentro del toque, como pide el iPhone)
+      const t = byId.get(lp.id);
+      if (back && cur.hide) setHidden(hiddenFor(tracks, cur));
+      forced.add(t.id);
+      buildDeck();
+      renderFeed();
+      activeIdx = deckPos.get(t.id) || 0;
+      setView('feed');
+      load(t, true);
+      return;
+    }
+    if (!lp.src) { setView('feed'); return; }
+    wantPlay = true;
+    const s = openSource(Object.assign({}, lp.src, { at: lp.id }), { root: true, view: 'feed', resume: true });
+    if (!s) return;
+    const has = () => s.tracks.some((x) => x.id === lp.id);
+    const focus = () => { s.at = lp.id; s.forced.add(lp.id); adopt(s); };
+    const deep = () => {
+      // más abajo en la lista (en otra página de Soundeo): se piden hasta 3 más; mientras, no suena otra cosa
+      wantPlay = false;
+      findDeep(s, lp.id, 3).then((ok) => {
+        if (cur !== s) return;
+        if (ok) { wantPlay = true; focus(); } else toast('«' + (lp.name || 'Esa canción') + '» ya no está en ' + s.title);
+      });
+    };
+    if (s.loaded) {
+      // ya estaba cargada (la del arranque): rehacer lo que se esconde con lo escuchado en la visita anterior
+      if (back && s.hide) s.hidden = hiddenFor(s.tracks, s);
+      if (has()) focus();
+      else deep();
+    } else ensureLoaded(s).then(() => { if (cur === s && !s.error && s.tracks.length && !has()) deep(); });
+  }
+  function findDeep(s, id, n) {
+    const ok = () => s.tracks.some((x) => x.id === id);
+    if (cur !== s || ok() || !s.pages.hasMore || n <= 0) return Promise.resolve(cur === s && ok());
+    return loadMore().then(() => findDeep(s, id, n - 1));
+  }
+  function playNewFol() {
+    const t = tracks.find((x) => folNew.has(x.id));
+    if (!t) { toast('En esta lista ya no hay canciones nuevas'); return; }
+    if (!deckPos.has(t.id)) { forced.add(t.id); buildDeck(); renderFeed(); }
+    activeIdx = deckPos.get(t.id) || 0;
+    setView('feed');
+    load(t, true);
+  }
+  function homeCover(url, cls) {
+    return url ? `<img class="${cls}" alt="" decoding="async" loading="lazy" src="${esc(coverAt(url, '110'))}">` : `<span class="${cls} hmnc"></span>`;
+  }
+  function homeSeguidos(box, first) {
+    const paint = (c) => {
+      if (!box.isConnected) return;
+      const nw = folNewOf(c.tracks, folSeen());
+      const n = nw.length;
+      const arts = [];
+      nw.forEach((t) => (t.artist || '').split(/,\s*|\s+&\s+/).forEach((a) => { a = clean(a); if (a && !arts.includes(a)) arts.push(a); }));
+      const who = arts.length ? arts.slice(0, 3).join(', ') + (arts.length > 3 ? ' y ' + (arts.length - 3) + ' más' : '') : '';
+      const covers = (n ? nw : c.tracks).slice(0, 4).map((t) => homeCover(t.cover, 'hmsc')).join('');
+      box.classList.toggle('none', !n);
+      box.innerHTML = `<span class="hmtag">${i('bolt')}NUEVO EN SEGUIDOS</span>
+        <span class="hmbig"><b>${n}</b><span><strong>${n === 1 ? 'canción nueva' : 'canciones nuevas'}</strong><small>${esc(n ? who : !c.tracks.length ? 'Aún no sigues a ningún artista o sello' : c.first ? 'A partir de ahora te aviso de lo nuevo' : 'Nada nuevo desde la última vez')}</small></span></span>
+        <span class="hmrow"><span class="hmcovs">${covers}</span>${n ? '<span class="hmgo hmplaynew">' + i('play') + 'Escuchar</span>' : '<span class="hmgo">Ver Seguidos' + i('right') + '</span>'}</span>`;
+      const tile = $('.hm-fol b', box.parentNode);
+      if (tile) tile.textContent = String(n);
+    };
+    box.innerHTML = '<span class="hmtag">' + i('bolt') + 'NUEVO EN SEGUIDOS</span><span class="sk sk-l"></span><span class="sk sk-s"></span>';
+    folFetch(false).then(paint, (e) => {
+      if (!box.isConnected) return;
+      box.innerHTML = `<span class="hmtag">${i('bolt')}NUEVO EN SEGUIDOS</span><span class="hmerr">No se ha podido mirar Seguidos${e && /sesi/.test(e.message) ? ': no hay sesión de Soundeo en esta pestaña' : ''}.</span><span class="hmgo hmretry">Reintentar${i('refresh')}</span>`;
+      const r = $('.hmretry', box);
+      if (r) r.addEventListener('click', (ev) => { ev.stopPropagation(); folCache = null; homeSeguidos(box); });
+    });
+  }
+  function homeSimilar(box, t) {
+    const card = (x, k) => `<button class="hmsim" data-k="${k}">${homeCover(x.cover, 'hmsimc')}<b>${esc(x.name)}</b><small>${esc(x.artist)}</small></button>`;
+    box.innerHTML = '<div class="hmsims">' + '<span class="hmsim sk-card"><span class="sk sk-c"></span><span class="sk sk-s"></span><span class="sk sk-xs"></span></span>'.repeat(3) + '</div>';
+    similarFor(t).then((r) => {
+      if (!box.isConnected) return;
+      if (!r.list.length) { box.innerHTML = '<div class="hmnote">Soundeo no tiene parecidas para esta canción.</div>'; return; }
+      box.innerHTML = '<div class="hmsims">' + r.list.slice(0, 10).map(card).join('') + '</div>';
+      $$('.hmsim', box).forEach((b) => b.addEventListener('click', () => {
+        const x = r.list[+b.dataset.k];
+        // una fuente nueva con lo ya traído (no se pide otra vez), abierta en el feed en la canción tocada
+        const s2 = mkSrc({ kind: 'similar', title: r.src.title, xhr: true, web: r.src.web, url: r.src.url, loaded: true, at: x.id, view: 'feed' });
+        s2.tracks = r.list.slice();
+        s2.mode = r.src.mode;
+        s2.forced.add(x.id);
+        pgClose();
+        wantPlay = true;
+        openSource({ kind: 'similar', title: s2.title, url: s2.url }, { src: s2, view: 'feed' });
+        if (cur === s2 && deckPos.has(x.id)) { activeIdx = deckPos.get(x.id); load(byId.get(x.id) || x, true); }
+      }));
+    }, () => { if (box.isConnected) box.innerHTML = '<div class="hmnote">No se han podido traer las parecidas.</div>'; });
+  }
+
+  /* ───────────── 2.2 · Diseño 2: pantallas de Ajustes (en bloques, con iconos de color) ───────────── */
+  // Bloque de filas con un título encima. `hue`: color del cuadrado del icono.
+  function grp3(b, title, rows) {
+    if (title) b.appendChild(el(`<div class="sec">${esc(title)}</div>`));
+    const g = el('<div class="grp"></div>');
+    rows.filter(Boolean).forEach(([o, hue]) => { const r = pgRow(o); r.style.setProperty('--ih', String(hue)); g.appendChild(r); });
+    b.appendChild(g);
+    return g;
+  }
+  // La versión, abajo de Ajustes: tocarla 5 veces seguidas desbloquea el «Diseño 2» (escondido hasta que esté listo)
+  function versionTaps(node) {
+    let n = 0;
+    let t0 = 0;
+    node.addEventListener('click', () => {
+      const now = Date.now();
+      n = now - t0 < 1500 ? n + 1 : 1;
+      t0 = now;
+      if (n < 5) return;
+      n = 0;
+      const where = prefs.ui2 ? 'Ajustes → Apariencia' : 'Ajustes → Pantalla';
+      if (prefs.ui3Unlocked) { toast('El Diseño 2 ya está desbloqueado: ' + where); return; }
+      prefs.ui3Unlocked = true;
+      savePrefs();
+      if (root && $('.s-settings.on', root)) openSettings();
+      toast('Diseño 2 desbloqueado: está en ' + where, null, null, 4000);
+    });
+  }
+  function settings3(b) {
+    fdraft = null;
+    const canF = !!(cur && cur.canFilter);
+    const curVal = canF
+      ? cur.title + ' · ' + (comboKey(cur.filters) === comboKey(defFilters) && !cur.filters.search ? 'sin cambios' : describeFilters(cur.filters))
+      : (cur ? cur.title + ' · ' : '') + 'esta lista no tiene filtros';
+    const acc = clean($('#top-menu-account span') && $('#top-menu-account span').textContent);
+    grp3(b, 'Listas', [
+      [{ cls: 'r-fstart', icon: 'set2', label: 'Filtros predeterminados', val: describeFilters(defFilters), fn: () => pgOpen('filters', 'start') }, 265],
+      [{ cls: 'r-fcur', icon: 'funnel', label: 'Filtros actuales', val: curVal, disabled: !canF, fn: () => pgOpen('filters', 'cur') }, 210],
+      [{ cls: 'r-start', icon: 'door', label: 'Al abrir', val: sectionByKey(prefs.startSection || 'avail').name + ' · vista ' + (prefs.startView === 'list' ? 'Lista' : 'Feed'), fn: () => pgOpen('start') }, 160],
+    ]);
+    grp3(b, 'Escuchar', [
+      [{ cls: 'r-play', icon: 'play', label: 'Reproducción', val: 'Saltos −' + skipBack() + ' / +' + skipFwd() + ' s · precarga ' + (prefs.preload ? 'activada' : 'apagada'), fn: () => pgOpen('play') }, 140],
+      [{ cls: 'r-look', icon: 'palette', label: 'Apariencia', val: 'Pestañas: ' + (tabsB() ? 'Lista' : 'Ajustes') + ' · tono ' + keyFmtName() + ' · lista ' + (prefs.dense ? 'compacta' : 'cómoda'), fn: () => pgOpen('look') }, 25],
+    ]);
+    grp3(b, 'App', [
+      [{ cls: 'r-diag', icon: 'bug', label: 'Diagnóstico', val: 'Para Claude', go: false, fn: diagnostics }, 330],
+      loader() ? [{ cls: 'r-upd', icon: 'refresh', label: 'Buscar actualización', val: 'Versión ' + VERSION, go: false, fn: checkUpdate }, 190] : null,
+      [{ cls: 'r-web', icon: 'ext', label: 'Ver la web original', go: false, fn: () => { pgClose(); closeApp(); } }, 230],
+    ]);
+    versionTaps(b.appendChild(el(`<div class="note vnote">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`)));
+    return 'Ajustes';
+  }
+  function filters3(b, foot, mode) {
+    const isStart = mode === 'start';
+    if (!isStart && !(cur && cur.canFilter)) {
+      b.appendChild(el('<div class="note" style="margin-top:10px">Esta lista no tiene filtros.</div>'));
+      return 'Filtros actuales';
+    }
+    if (!fdraft || fdraft.mode !== mode || (!isStart && fdraft.src !== cur)) {
+      const f0 = cleanFilters(isStart ? defFilters : cur.filters);
+      if (isStart) f0.search = '';
+      fdraft = { mode, f: f0, src: isStart ? null : cur, dirty: false };
+    }
+    const f = fdraft.f;
+    if (orderBpm(f) && isStart) setStartFilters(f);
+    const loose = !isStart && !!cur.loose;
+    const add = (x) => { const n = typeof x === 'string' ? el(x) : x; b.appendChild(n); return n; };
+    add(`<div class="note pgsub">${isStart ? 'Con qué se abren la app y las secciones del menú. Seguidos va siempre sin filtros.' : 'Se aplican a ' + esc(cur.title) + '.' + (loose ? ' En esta sección Soundeo puede no aplicar todos; el género se filtra en la app.' : '')}</div>`);
+    // Guardados: tarjetas, con la que coincide marcada
+    add(`<div class="sec">Guardados <span class="svn">${savedFilters.length} de ${MAX_SAVED}</span></div>`);
+    const strip = add('<div class="svcards"></div>');
+    const here = comboKey(f);
+    savedFilters.forEach((sv) => {
+      const on = comboKey(sv.f) === here;
+      const c = el(`<div class="svc${on ? ' on' : ''}"><button class="svgo"><span class="svi">${i(on ? 'check' : 'layers')}</span><b>${esc(sv.name)}</b><small>${esc(describeFilters(sv.f))}</small></button><button class="svmore" aria-label="Opciones de ${esc(sv.name)}">${i('more')}</button></div>`);
+      $('.svgo', c).addEventListener('click', () => useSaved(sv));
+      $('.svmore', c).addEventListener('click', () => savedMenu(sv));
+      strip.appendChild(c);
+    });
+    const plus = el(`<button class="svc svadd r-save">${i('plus')}<span>Guardar los de ahora</span></button>`);
+    plus.addEventListener('click', saveComboGo);
+    strip.appendChild(plus);
+    grp3(b, 'Filtros', [
+      [{ cls: 'r-gen', icon: 'note', label: 'Géneros', val: f.genres.length ? shortList(f.genres.map(genreName)) : 'Todos', small: f.genres.length ? String(f.genres.length) : '', fn: () => pgOpen('f-genres') }, 265],
+      [{ cls: 'r-bpm', icon: 'tempo', label: 'BPM', val: bpmText(f), fn: () => pgOpen('f-bpmkey') }, 20],
+      [{ cls: 'r-key', icon: 'wheel', label: 'Tono', val: f.keys.length ? shortList(keyCams(f.keys)) : 'Cualquiera', small: f.keys.length ? String(keyCams(f.keys).length) : '', fn: () => pgOpen('f-bpmkey') }, 160],
+      loose ? null : [{
+        cls: 'r-time', icon: 'calendar', label: 'Fecha de lanzamiento', val: timeName(f.time), go: false,
+        fn: () => actionSheet('Fecha de lanzamiento', '', '', TIME_OPTS.map(([v, n]) => ({ label: n, small: String(f.time) === v ? '●' : '', fn: () => { f.time = v; fTouched(); pgRender(true); } }))),
+      }, 210],
+      loose ? null : [{
+        cls: 'r-type', icon: 'layers', label: 'Tipo de track', val: typeName(f.trackType), go: false,
+        fn: () => actionSheet('Tipo de track', '', '', TYPE_OPTS.map(([v, n]) => ({ label: n, small: String(f.trackType || '0') === v ? '●' : '', fn: () => { f.trackType = v; fTouched(); pgRender(true); } }))),
+      }, 320],
+    ]);
+    if (!isStart && !loose) {
+      add('<div class="sec">Más</div>');
+      const g = add('<div class="grp grpf"></div>');
+      g.appendChild(el('<div class="lab">Buscar por título</div>'));
+      const inp = g.appendChild(el('<input class="txt srch-t" type="search" placeholder="Mín. 3 letras" autocomplete="off" autocapitalize="off">'));
+      inp.value = f.search || '';
+      inp.addEventListener('input', () => { f.search = clean(inp.value); fdraft.dirty = true; });
+      const tg = g.appendChild(el('<div class="tg"><div><b>Solo disponibles</b><small>Oculta los tracks que solo se pueden votar</small></div><button class="sw sw-av" aria-label="Solo disponibles"></button></div>'));
+      const sw = $('.sw-av', tg);
+      sw.classList.toggle('on', String(f.available) !== '0');
+      sw.addEventListener('click', () => { f.available = String(f.available) === '0' ? '1' : '0'; sw.classList.toggle('on', String(f.available) !== '0'); fdraft.dirty = true; });
+    }
+    const same = comboKey(f) === comboKey(defFilters);
+    if (isStart) {
+      grp3(b, '', [[{ cls: 'r-clear', icon: 'xs', label: 'Quitar todos los filtros', go: false, disabled: comboKey(f) === comboKey({}), fn: () => { Object.assign(f, comboOf({})); fTouched(); pgRender(true); } }, 0]]).classList.add('grpx');
+      add(`<div class="note okn">${i('check')}Se guardan solos al cambiarlos</div>`);
+    } else {
+      grp3(b, '', [[{ cls: 'r-reset', icon: 'refresh', label: 'Volver a los predeterminados', val: same ? 'Ya son estos' : describeFilters(defFilters), go: false, disabled: same, fn: () => { Object.assign(f, comboOf(defFilters)); fTouched(); pgRender(true); } }, 0]]).classList.add('grpx');
+      const ap = el('<button class="btn pri bapply">Aplicar filtros</button>');
+      ap.addEventListener('click', applyDraft);
+      const pin = el(`<button class="btn bpin r-pin"${same ? ' disabled' : ''}>Fijar como predeterminados</button>`);
+      pin.addEventListener('click', () => { if (comboKey(f) === comboKey(defFilters)) return; orderBpm(f); setStartFilters(f); toast('Fijados: la app se abrirá con estos filtros'); pgRender(true); });
+      foot.appendChild(ap);
+      foot.appendChild(pin);
+    }
+    return isStart ? 'Filtros predeterminados' : 'Filtros actuales';
+  }
+  // Tonos elegidos por número de la rueda (los nombres que valen lo mismo, juntos)
+  const keyCams = (keys) => { const out = []; keys.forEach((k) => { const c = camelot(k) || k; if (!out.includes(c)) out.push(c); }); return out.sort((a, z) => camSort(a) - camSort(z)); };
+  function bpmkey3(b) {
+    if (!fdraft) { pgPop(0); return ''; }
+    const f = fdraft.f;
+    const opts = keyOptions();
+    const cams = [];
+    opts.forEach((k) => { if (k.cam && !cams.some((c) => c.cam === k.cam)) cams.push({ cam: k.cam, ids: opts.filter((x) => x.cam === k.cam).map((x) => x.id), name: k.id }); });
+    const row = (letter) => cams.filter((c) => new RegExp(letter + '$').test(c.cam)).sort((a, z) => camSort(a.cam) - camSort(z.cam));
+    const chip = (c) => `<button class="kc" data-c="${esc(c.cam)}" style="--kh:${keyHue(c.name)}"><b>${esc(c.cam)}</b><small>${esc(c.name)}</small></button>`;
+    b.innerHTML = `
+      <div class="sec">BPM <a href="#" class="bpmclear">Quitar</a></div>
+      <div class="grp grpf bkb">
+        <div class="bpm bkv"><input class="bmin" type="number" inputmode="numeric" placeholder="mín" min="0" max="260" aria-label="BPM mínimo"><span>–</span><input class="bmax" type="number" inputmode="numeric" placeholder="máx" min="0" max="260" aria-label="BPM máximo"><small>BPM</small></div>
+        <div class="presets">${[[120, 126], [124, 130], [127, 140], [128, 132], [130, 140], [135, 150]].map(([a, z]) => `<button class="tag bp" data-a="${a}" data-z="${z}">${a}–${z}</button>`).join('')}</div>
+      </div>
+      <div class="sec">Tono <a href="#" class="gclear">Quitar</a></div>
+      <div class="note kcn"></div>
+      <div class="kgrid">${row('A').map(chip).join('')}</div>
+      <div class="kgrid">${row('B').map(chip).join('')}</div>
+      <div class="note">Cada número de la rueda Camelot tiene su color: los vecinos (7A · 8A · 9A) mezclan bien.</div>`;
+    const mn = $('.bmin', b);
+    const mx = $('.bmax', b);
+    const paint = (fields) => {
+      if (fields) { mn.value = f.bpmMin != null ? f.bpmMin : ''; mx.value = f.bpmMax != null ? f.bpmMax : ''; }
+      $$('.bp', b).forEach((x) => x.classList.toggle('on', +x.dataset.a === f.bpmMin && +x.dataset.z === f.bpmMax));
+      const on = keyCams(f.keys);
+      $$('.kc', b).forEach((x) => x.classList.toggle('on', on.includes(x.dataset.c)));
+      $('.kcn', b).textContent = on.length ? on.join(' · ') : 'Cualquier tono';
+    };
+    const read = () => {
+      const a = parseInt(mn.value, 10);
+      const z = parseInt(mx.value, 10);
+      f.bpmMin = isFinite(a) ? Math.max(0, Math.min(260, a)) : null;
+      f.bpmMax = isFinite(z) ? Math.max(0, Math.min(260, z)) : null;
+      fTouched();
+      paint(false);
+    };
+    mn.addEventListener('input', read);
+    mx.addEventListener('input', read);
+    const tidy = () => { if (orderBpm(f)) fTouched(); paint(true); };
+    mn.addEventListener('change', tidy);
+    mx.addEventListener('change', tidy);
+    $$('.bp', b).forEach((x) => x.addEventListener('click', () => { f.bpmMin = +x.dataset.a; f.bpmMax = +x.dataset.z; fTouched(); paint(true); }));
+    $('.bpmclear', b).addEventListener('click', (e) => { e.preventDefault(); f.bpmMin = f.bpmMax = null; fTouched(); paint(true); });
+    $$('.kc', b).forEach((x) => x.addEventListener('click', () => {
+      const c = cams.find((y) => y.cam === x.dataset.c);
+      if (!c) return;
+      const has = f.keys.some((k) => c.ids.includes(k));
+      f.keys = has ? f.keys.filter((k) => !c.ids.includes(k)) : f.keys.concat(c.ids[0]);
+      fTouched();
+      paint(false);
+    }));
+    $('.gclear', b).addEventListener('click', (e) => { e.preventDefault(); f.keys = []; fTouched(); paint(false); });
+    paint(true);
+    return 'BPM y tono';
+  }
+  function home3(b) {
+    fdraft = null;
+    const lp = LS.get('lastPlay', null);
+    const sameAsCur = !!(current && lp && lp.id === current.id);
+    const played = !!(current && (sameAsCur || !audio.paused || audio.currentTime > 0));
+    const t = played ? current : lp && lp.id ? lp : null;
+    const srcTitle = played ? (sameAsCur && lp.srcTitle) || (cur ? cur.title : '') : lp ? lp.srcTitle : '';
+    const hdr = el(`<div class="hmh"><div><div class="hmd">${esc(homeDate())}</div><h1>Home</h1></div>${tabsB() ? `<button class="ibtn hmset" aria-label="Ajustes">${i('set2')}</button>` : ''}</div>`);
+    const hs = $('.hmset', hdr);
+    if (hs) hs.addEventListener('click', () => pgOpen('settings'));
+    b.appendChild(hdr);
+    if (t) {
+      const d = audio.duration;
+      const pct = current && t === current && isFinite(d) && d > 0 ? Math.min(100, (audio.currentTime / d) * 100) : 0;
+      const card = el(`<button class="hmcard hmcont">${homeCover(t.cover, 'hmcc')}<span class="hmct"><span class="hmk">SIGUE ESCUCHANDO</span><b>${esc(t.name)}</b><small>${esc([t.artist, srcTitle].filter(Boolean).join(' · '))}</small>${pct ? `<span class="hmbar"><span style="width:${pct.toFixed(1)}%"></span></span>` : ''}</span><span class="hmplay">${i(current && t === current && !audio.paused ? 'pause' : 'play')}</span></button>`);
+      card.addEventListener('click', () => resumeLast(played ? Object.assign({}, sameAsCur ? lp : null, { id: current.id }) : lp));
+      b.appendChild(card);
+    }
+    // desde Home, ir a una sección cierra Home (aunque ya fuera la lista de debajo)
+    const goSec = (k) => {
+      pgClose();
+      if (stack.length === 1 && cur && cur.kind === 'section' && cur.key === k && !cur.error && !cur.needLogin) { setView('list'); return; }
+      openSection(k);
+    };
+    const fol = el('<div class="hmcard hmfol" role="button" tabindex="0"></div>');
+    fol.addEventListener('click', (e) => {
+      const play = !!(e.target.closest && e.target.closest('.hmgo.hmplaynew'));
+      goSec('followed');
+      if (!play || !cur || cur.key !== 'followed') return;
+      const s0 = cur;
+      ensureLoaded(s0).then(() => { if (cur === s0) playNewFol(); });
+    });
+    b.appendChild(fol);
+    b.appendChild(el('<div class="sec">Tu música</div>'));
+    const tiles = el('<div class="hmtiles"></div>');
+    const tile = (cls, icon, hue, title, big, sub, fn) => {
+      const x = el(`<button class="hmtile ${cls}" style="--ih:${hue}"><span class="hmti">${i(icon)}</span><b>${esc(big)}</b><span class="hmtt">${esc(title)}</span><small>${esc(sub)}</small></button>`);
+      x.addEventListener('click', fn);
+      tiles.appendChild(x);
+    };
+    const fv = favCount();
+    const dl = dlLeft();
+    const vl = voteLeft();
+    tile('hm-fav', 'star', 45, 'Favoritos', fmtN(fv), 'en Soundeo', () => goSec('favs'));
+    tile('hm-dl', 'dl', 200, 'Mis descargas', fmtN(dl), dl == null ? 'lo que has bajado' : dl === 1 ? 'queda hoy' : 'quedan hoy', () => goSec('downloads'));
+    tile('hm-fol', 'users', 280, 'Seguidos', '…', 'nuevas', () => goSec('followed'));
+    tile('hm-vote', 'heart', 345, 'Me gusta', fmtN(vl), vl === 1 ? 'libre hoy' : 'libres hoy', () => openSource({ kind: 'page', key: 'votes', title: 'Mis me gusta', url: location.origin + '/account/votes' }, { root: true, view: 'list' }));
+    b.appendChild(tiles);
+    homeSeguidos(fol);
+    b.appendChild(el(`<div class="sec">Tus combinaciones <span class="svn">un toque y al Feed</span></div>`));
+    const combos = el('<div class="hmcombos"></div>');
+    if (savedFilters.length) {
+      savedFilters.forEach((sv, k) => {
+        const x = el(`<button class="hmcombo" style="--ih:${[200, 280, 30, 140, 330][k % 5]}"><span></span>${esc(sv.name)}</button>`);
+        x.addEventListener('click', () => {
+          const key = prefs.startSection === 'all' ? 'all' : 'avail';
+          openSource(sectionDesc(key, Object.assign(cleanFilters(defFilters), comboOf(sv.f), { search: '' })), { root: true, view: 'feed' });
+        });
+        combos.appendChild(x);
+      });
+    } else {
+      const x = el(`<button class="hmcombo hmc0">${i('plus')}Guarda combinaciones en Filtros actuales</button>`);
+      x.addEventListener('click', () => { if (tabsB()) pgOpen('settings'); else settingsGo(); pgOpen('filters', 'cur'); });
+      combos.appendChild(x);
+    }
+    b.appendChild(combos);
+    // Parecidas a lo que suena o sonó (Soundeo solo las tiene para tracks publicados: id numérico)
+    const simT = t && /^\d+$/.test(String(t.id)) ? t : null;
+    if (simT) {
+      const sh = b.appendChild(el(`<div class="sec"><span class="sect">Parecidas a «${esc(simT.name)}»</span><a href="#" class="hmall">Ver todas</a></div>`));
+      const all = $('.hmall', sh);
+      if (all) all.addEventListener('click', (e) => { e.preventDefault(); pgClose(); openSimilar(simT); });
+      const sim = el('<div class="hmsimbox"></div>');
+      b.appendChild(sim);
+      homeSimilar(sim, simT);
+    }
+    b.appendChild(el('<div class="sec">Hoy</div>'));
+    const unheard = cur && tracks.length ? tracks.filter((x) => !isHeard(x)).length : null;
+    b.appendChild(el(`<div class="hmstats"><span><b>${heardTodayN()}</b><small>escuchadas hoy</small></span><span><b>${fmtN(unheard)}</b><small>sin escuchar${cur ? ' en ' + esc(cur.title) : ''}</small></span></div>`));
+    return 'Home';
+  }
+  function chat3(b) {
+    b.innerHTML = `<div class="cht">
+      <div class="chb"><span class="chb1"></span><span class="chb2">${i('note')}</span></div>
+      <span class="chs">MUY PRONTO</span>
+      <h3>Pásate canciones con tus amigos</h3>
+      <p>Conversaciones con clave, canciones como tarjeta y un toque para escucharlas en el Feed.</p>
+      <button class="btn full" disabled>Nueva conversación</button>
+      <button class="btn full chline" disabled>Unirme con una clave</button>
+    </div>`;
+    return 'Chat';
+  }
+
   const PAGES = {
     // primera capa: lo que hay y cómo está, sin entrar
     settings(b) {
+      if (ui3()) return settings3(b);
       fdraft = null;
       const add = (x) => { const n = typeof x === 'string' ? el(x) : x; b.appendChild(n); return n; };
       const canF = !!(cur && cur.canFilter);
@@ -4650,7 +5670,7 @@
       add(pgRow({ cls: 'r-diag', icon: 'more', label: 'Diagnóstico', val: 'Para Claude', go: false, fn: diagnostics }));
       if (loader()) add(pgRow({ cls: 'r-upd', icon: 'fwd', label: 'Buscar actualización', val: 'Versión ' + VERSION, go: false, fn: checkUpdate }));
       add(pgRow({ cls: 'r-web', icon: 'ext', label: 'Ver la web original', go: false, fn: () => { pgClose(); closeApp(); } }));
-      add(`<div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`);
+      versionTaps(add(`<div class="note vnote">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`));
       return 'Ajustes';
     },
     // con qué arranca la app
@@ -4711,8 +5731,12 @@
         <div class="lab">Tamaño de letra</div>
         ${pgSeg('ltx', [['0', 'Normal'], ['1', 'Grande']], prefs.bigText ? '1' : '0')}
         <div class="note">La letra grande se nota sobre todo en la lista; en el feed crece poco, para que todo siga cabiendo.</div>
+        ${ui3() ? `<div class="lab">Barra de pestañas</div>
+        ${pgSeg('tbl', [['settings', 'Ajustes'], ['list', 'Lista']], tabsB() ? 'list' : 'settings')}
+        <div class="note tbn"></div>` : ''}
         <div class="sec">Pantalla</div>
-        ${tgHtml('ui2', 'Diseño nuevo (en pruebas)', 'Pestañas abajo (Feed, Lista, Buscar, Chat, Ajustes) y la lista se elige arriba. Solo en vertical')}
+        ${ui3() ? '' : tgHtml('ui2', 'Diseño nuevo (en pruebas)', 'Pestañas abajo (Feed, Lista, Buscar, Chat, Ajustes) y la lista se elige arriba. Solo en vertical')}
+        ${prefs.ui3Unlocked ? tgHtml('ui3', 'Diseño 2 (en pruebas)', 'Home, color coral, iconos nuevos y Ajustes en bloques. Solo lo ves tú hasta que lo saques para todos') : ''}
         ${tgHtml('immersive', 'Esconder la barra de Safari', 'Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas')}
 `;
       const ex = () => { $('.kfx', b).textContent = 'se verá «' + keyText('Amin') + '»'; };
@@ -4720,13 +5744,19 @@
       wireSeg(b, 'kf', (v) => { prefs.keyFmt = v; savePrefs(); ex(); applyLook(); });
       wireSeg(b, 'ldn', (v) => { prefs.dense = v === '1'; savePrefs(); applyLook(); });
       wireSeg(b, 'ltx', (v) => { prefs.bigText = v === '1'; savePrefs(); applyLook(); });
+      const tbn = $('.tbn', b);
+      const tbText = () => { if (tbn) tbn.textContent = tabsB() ? 'Home, Feed, Lista, Buscar y Chat. Ajustes está en Home (arriba a la derecha).' : 'Home, Feed, Buscar, Chat y Ajustes. Feed y Lista se cambian arriba a la derecha.'; };
+      tbText();
+      if (tbn) wireSeg(b, 'tbl', (v) => { prefs.tabLayout = v === 'list' ? 'list' : 'settings'; savePrefs(); applyUi3(true); tbText(); });
       wireSwitches(b);
       // al apagar el diseño nuevo esta pantalla deja de existir: decir dónde quedan los ajustes
-      $('.sw[data-p="ui2"]', b).addEventListener('click', () => { if (!prefs.ui2) toast('Diseño de siempre: los ajustes vuelven a su botón de arriba'); });
+      const s2 = $('.sw[data-p="ui2"]', b);
+      if (s2) s2.addEventListener('click', () => { if (!prefs.ui2) toast('Diseño de siempre: los ajustes vuelven a su botón de arriba'); });
       return 'Apariencia';
     },
     // segunda capa: filtros predeterminados ('start') o los de la lista que se ve ('cur')
     filters(b, foot, mode) {
+      if (ui3()) return filters3(b, foot, mode);
       const isStart = mode === 'start';
       if (!isStart && !(cur && cur.canFilter)) {
         b.appendChild(el('<div class="note" style="margin-top:10px">Esta lista no tiene filtros.</div>'));
@@ -4890,6 +5920,10 @@
       try { inp.focus(); } catch (e) {}
       return sv ? 'Renombrar' : 'Guardar combinación';
     },
+    // 2.2 · Diseño 2
+    'f-bpmkey'(b) { return bpmkey3(b); },
+    home(b) { return home3(b); },
+    chat(b) { return chat3(b); },
   };
 
   /* ───────────── ajustes ───────────── */
@@ -4910,6 +5944,15 @@
         if (p === 'preload' && !prefs.preload) dropPreloads();
         if (p === 'immersive') { LS.set('immHint', 0); LS.set('immH', {}); imm.rec = null; immApply(); }
         if (p === 'ui2') applyUi();
+        if (p === 'ui3') {
+          // el Diseño 2 va encima del diseño nuevo
+          if (prefs.ui3 && !prefs.ui2) prefs.ui2 = true;
+          savePrefs();
+          closeSheets();
+          applyUi();
+          if (pgOn()) pgRender(true);
+          toast(prefs.ui3 ? 'Diseño 2 activado' : 'Vuelves al diseño nuevo');
+        }
       });
     });
   }
@@ -4961,6 +6004,7 @@
       ${isStart ? '' : `
       <div class="sec">Pantalla</div>
       <div class="tg"><div><b>Diseño nuevo (en pruebas)</b><small>Pestañas abajo (Feed, Lista, Buscar, Chat, Ajustes) y la lista se elige arriba. Solo en vertical</small></div><button class="sw" data-p="ui2"></button></div>
+      ${prefs.ui3Unlocked ? '<div class="tg"><div><b>Diseño 2 (en pruebas)</b><small>Home, color coral, iconos nuevos y Ajustes en bloques. Solo lo ves tú hasta que lo saques para todos</small></div><button class="sw" data-p="ui3"></button></div>' : ''}
       <div class="tg"><div><b>Esconder la barra de Safari</b><small>Desliza hacia arriba una vez y la barra se queda pequeña (en horizontal desaparece). Vuelve si la tocas</small></div><button class="sw" data-p="immersive"></button></div>
       <div class="sec">Reproducción</div>
       <div class="tg"><div><b>Pasar a la siguiente al acabar</b><small>Cuando termina la preview</small></div><button class="sw" data-p="autoNext"></button></div>
@@ -4974,8 +6018,10 @@
       <button class="opt goweb">${i('ext')}<span>Ver la web original</span></button>
       ${loader() ? `<button class="opt oupd">${i('fwd')}<span>Buscar actualización</span><small>v${VERSION}</small></button>` : ''}
       <button class="opt diag">${i('more')}<span>Diagnóstico (para Claude)</span></button>
-      <div class="note">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
+      <div class="note vnote">Soundeo Feed ${VERSION}${loader() ? ' · se actualiza sola' : ''}${acc ? ' · Premium: ' + esc(acc) : ''}</div>`}
     `;
+    const vn = $('.vnote', b);
+    if (vn) versionTaps(vn);
     const foot = $('.sf', s);
     foot.style.display = canF ? '' : 'none';
     if (canF) {
@@ -5165,6 +6211,15 @@
       votes: { shapes: Array.from(voteShapes.values()), detect: voteDetect, mine: myVotes.size, votable: tracks.filter((x) => x.vote).length, voted: tracks.filter((x) => x.vote && isVoted(x)).length },
       siteListened: { tracks: tracks.length, siteHeard: tracks.filter((x) => x.siteHeard).length, mine: tracks.filter((x) => heard.has(x.id)).length, heardTotal: heard.size },
       keep: { lists: Object.keys(keepMap).length, cur: (keepIds(cur) || new Set()).size }, // 2.1.9: escuchadas que se conservan al recargar
+      // 2.2 · Diseño 2: si está puesto, la barra, hace cuánto se usó, dónde estaba y lo de Seguidos (sin datos de la cuenta)
+      d2: (() => {
+        const la = LS.get('lastActive', 0);
+        const ln = LS.get('lastNav', null);
+        const fs = folSeen();
+        const fc = folCache || LS.get('folCache', null);
+        return { on: ui3(), unlocked: !!prefs.ui3Unlocked, tabs: prefs.tabLayout, idleMin: la ? Math.round((Date.now() - la) / 60000) : null, nav: ln ? { min: Math.round((Date.now() - ln.t) / 60000), kind: ln.src && ln.src.kind, key: ln.src && ln.src.key, view: ln.view, tab: ln.tab } : null,
+          folSeen: fs && Array.isArray(fs.ids) ? { n: fs.ids.length, min: Math.round((Date.now() - fs.t) / 60000) } : null, folCache: fc && Array.isArray(fc.tracks) ? { n: fc.tracks.length, min: Math.round((Date.now() - fc.t) / 60000), nuevas: folNewOf(fc.tracks, fs).length } : null, folNew: folNew.size, today: heardTodayN() };
+      })(),
     };
     if (t) {
       const fb = origFav(t);
@@ -5213,6 +6268,8 @@
     if (!toastsEl || !isOpen) return null;
     const t = el(`<div class="toast"><span>${esc(msg)}</span>${actionLabel ? '<button>' + esc(actionLabel) + '</button>' : ''}</div>`);
     if (actionLabel) $('button', t).addEventListener('click', () => { t.remove(); fn && fn(); });
+    // 2.2 · Diseño 2: un solo aviso a la vez (el nuevo sustituye al anterior)
+    if (ui3()) toastsEl.textContent = '';
     toastsEl.appendChild(t);
     while (toastsEl.children.length > 3) toastsEl.firstElementChild.remove();
     setTimeout(() => t.remove(), ms || (actionLabel ? 6000 : 2600));
@@ -5356,7 +6413,13 @@
     live.msg = info.msg;
     if (info.title && /^(artist|label|release|page)$/.test(live.kind)) live.title = info.title;
     live.mode = listModeFor(live.tracks);
-    if (!resume) keepReset(live); // abrir la lista desde fuera es una visita nueva; recargar, la misma (2.1.9)
+    // 2.2 · Diseño 2: si se abre antes de una hora, se vuelve exactamente a donde se estaba (también al abrir desde el
+    // icono, que no es «recargar»): la lista, la canción y la vista; y es la misma visita (las escuchadas siguen detrás)
+    const ln3 = ui3() ? LS.get('lastNav', null) : null;
+    const cont3 = !!(ln3 && ln3.src && ln3.src.url && !resume && !(recent('navOnce') && logged) &&
+      Date.now() - LS.get('lastActive', 0) < HOUR && Date.now() - (ln3.t || 0) < HOUR);
+    const contLive = cont3 && sameUrl(ln3.src.url, live.url);
+    if (!resume && !contLive) keepReset(live); // abrir la lista desde fuera es una visita nueva; recargar, la misma (2.1.9)
     live.hidden = live.hide ? hiddenFor(live.tracks, live) : new Set();
     liveSrc = live;
     buildShell();
@@ -5364,6 +6427,7 @@
     // la posición guardada solo vale al recargar o volver atrás (no al abrir un marcador)
     const resumeId = resume ? hs.id || SS.get('pos:' + location.pathname + location.search, null) : null;
     if (resumeId) { live.forced.add(resumeId); live.at = resumeId; }
+    if (contLive && ln3.at) { live.forced.add(ln3.at); live.at = ln3.at; }
     stack = [live];
     // al recargar, volver a donde estabas (sección, artista, búsqueda…)
     const navOnce = recent('navOnce') && logged;
@@ -5377,6 +6441,7 @@
     }
     const top = stack[stack.length - 1];
     view = (hs.view || ((resume || navOnce) && top.view) || SS.get('view', null) || prefs.startView) === 'list' ? 'list' : 'feed';
+    if (cont3) view = ln3.view === 'list' ? 'list' : 'feed';
     if (!top.loaded) ensureLoaded(top);
     adopt(top);
     watchSite();
@@ -5392,9 +6457,11 @@
       openApp(view);
       // sección de inicio que no es una lista normal (Top 100, próximos, seguidos…): abrirla ahora
       const sec = prefs.startSection || 'avail';
-      if (!resume && (fromOutside || firstBoot) && stack.length === 1 && !/^(avail|all)$/.test(sec) && SECTIONS.some((x) => x.key === sec)) {
+      if (cont3 && !contLive) openSource(Object.assign({}, ln3.src, { at: ln3.at }), { root: true, view, resume: true });
+      else if (!cont3 && !resume && (fromOutside || firstBoot) && stack.length === 1 && !/^(avail|all)$/.test(sec) && SECTIONS.some((x) => x.key === sec)) {
         openSource(sectionDesc(sec), { root: true });
       }
+      ui3Boot(cont3 ? ln3 : null);
       // red de seguridad: si Soundeo marca TODA la página como escuchada, preguntar una vez
       if (prefs.siteHeard && live.tracks.length >= 20 && live.tracks.every((t) => t.siteHeard) && !LS.get('siteHeardAsked', false)) {
         LS.set('siteHeardAsked', true);
