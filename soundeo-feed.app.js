@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.1.8';
+  const VERSION = '2.1.9';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -584,7 +584,49 @@
       }).catch(() => {});
     } catch (e) {}
   }
-  const hiddenFor = (list) => new Set(prefs.skipHeard ? list.filter((t) => isHeard(t) && !(current && current.id === t.id)).map((t) => t.id) : []);
+  // 2.1.9: lo que suena durante una visita a una lista se queda en su feed aunque se recargue la pestaña (Safari la recarga
+  // al volver tras cerrar la app). Por lista (`keepHeard`, en localStorage): {t, ids}. Abrir la lista de nuevo lo borra.
+  let keepMap = LS.get('keepHeard', {}) || {};
+  if (typeof keepMap !== 'object' || Array.isArray(keepMap)) keepMap = {};
+  let keepLast = '';
+  const keepKey = (s) => (s && s.hide && s.url ? String(s.url).split('#')[0] : '');
+  const keepIds = (s) => { const e = keepMap[keepKey(s)]; return e && Array.isArray(e.ids) && e.ids.length ? new Set(e.ids) : null; };
+  function keepSave() {
+    const old = Date.now() - 7 * 864e5;
+    const ks = Object.keys(keepMap).filter((k) => keepMap[k] && keepMap[k].t > old).sort((a, b) => keepMap[b].t - keepMap[a].t).slice(0, 12);
+    const m = {};
+    ks.forEach((k) => { m[k] = keepMap[k]; });
+    keepMap = m;
+    LS.set('keepHeard', keepMap);
+  }
+  function keepReset(s) {
+    const k = keepKey(s);
+    if (k && keepMap[k]) { delete keepMap[k]; keepSave(); }
+  }
+  // Apunta `id` en cada lista abierta (la de la pantalla, las de debajo y la de la cola) en cuyo feed está.
+  function keepNote(id) {
+    const tag = id + ' ' + (cur && cur.url);
+    if (!id || tag === keepLast) return;
+    keepLast = tag;
+    let ch = false;
+    stack.concat(queue ? [queue.src] : []).forEach((s) => {
+      const k = keepKey(s);
+      if (!k) return;
+      const list = s === cur ? tracks : s.tracks;
+      const hid = s === cur ? hiddenAtLoad : s.hidden;
+      const frc = s === cur ? forced : s.forced;
+      if (!list || !list.some((t) => t.id === id) || (hid && hid.has(id) && !(frc && frc.has(id)))) return;
+      const e = keepMap[k] && Array.isArray(keepMap[k].ids) ? keepMap[k] : (keepMap[k] = { t: 0, ids: [] });
+      e.t = Date.now();
+      if (e.ids.indexOf(id) < 0) { e.ids.push(id); if (e.ids.length > 600) e.ids.splice(0, e.ids.length - 600); }
+      ch = true;
+    });
+    if (ch) keepSave();
+  }
+  const hiddenFor = (list, s) => {
+    const keep = keepIds(s);
+    return new Set(prefs.skipHeard ? list.filter((t) => isHeard(t) && !(current && current.id === t.id) && !(keep && keep.has(t.id))).map((t) => t.id) : []);
+  };
   const myDownloads = new Set(LS.get('downloaded', []));
   function markDownloaded(id) {
     myDownloads.add(id);
@@ -2319,6 +2361,7 @@
     const known = opts.root ? [liveSrc, queue && queue.stack.length === 1 ? queue.src : null].find((x) => x && x.loaded && !x.error && x.kind === d.kind && sameUrl(x.url, d.url)) : null;
     // `opts.src`: una fuente que ya se tenía (la última búsqueda), tal como se dejó
     let s = opts.src || known || mkSrc(d);
+    if (s !== opts.src && s !== known) keepReset(s); // lista abierta de nuevo: visita nueva (2.1.9)
     if (opts.root) stack = [s];
     else if (opts.replace) stack[stack.length - 1] = s;
     else {
@@ -2442,7 +2485,7 @@
     s.filtersOn = info.filtersOn;
     if (info.title && /^(artist|label|release|page)$/.test(s.kind)) s.title = info.title;
     s.mode = listModeFor(s.tracks);
-    s.hidden = s.hide ? hiddenFor(s.tracks) : new Set();
+    s.hidden = s.hide ? hiddenFor(s.tracks, s) : new Set();
     s.forced = new Set();
     if (s.at) s.forced.add(s.at);
     s.probe = null;
@@ -2971,7 +3014,7 @@
         pg.hasMore = !!info.next && info.tracks.length > 0;
         const known = new Set(list.map((t) => t.id));
         const fresh = localFilter(s, info.tracks).filter((t) => t.id && !known.has(t.id));
-        if (s.hide) hiddenFor(fresh).forEach((id) => s.hidden.add(id));
+        if (s.hide) hiddenFor(fresh, s).forEach((id) => s.hidden.add(id));
         s.tracks = list.concat(fresh);
         if (s === cur) { tracks = s.tracks; onTracksAdded(fresh); }
         return fresh;
@@ -3845,7 +3888,7 @@
   onAudio('timeupdate', () => {
     const now = performance.now();
     if (now - lastProgPaint > 240) { lastProgPaint = now; paintProgress(); }
-    if (current && !audio.paused && audio.currentTime >= HEARD_AFTER && !heard.has(current.id)) markHeard(current.id);
+    if (current && !audio.paused && audio.currentTime >= HEARD_AFTER) { if (!heard.has(current.id)) markHeard(current.id); keepNote(current.id); }
     if (wantPlay && now - aheadAt > 2500) preloadAhead();
   });
   onAudio('ended', () => {
@@ -4282,15 +4325,22 @@
   function votedFrom(r, before, left0, left1) {
     const x = r.hasOwnProperty('voted') ? r.voted : r.result;
     const txt = (typeof x === 'string' ? x : '') + ' ' + (r.flash && r.flash.message ? r.flash.message : '');
-    if (/unvot|remov|cancel|revok|withdr/i.test(txt)) return false;
+    if (/unvot|remov|cancel|revok|withdr|took\b[^.]*\bback/i.test(txt)) return false; // «You took your vote back» (real, 27 nov)
     if (typeof x === 'string' && /vot/i.test(x)) return true;
     if (left0 != null && left1 != null && left0 !== left1) return left1 < left0;
     if (typeof x === 'boolean') return x;
     return !before;
   }
+  // ¿Dice la respuesta algo de cómo queda el voto? (para no dar por cambiado un aviso que no lo dice)
+  function voteSaid(r, left0, left1) {
+    const x = r.hasOwnProperty('voted') ? r.voted : r.result;
+    const txt = (typeof x === 'string' ? x : '') + ' ' + (r.flash && r.flash.message ? r.flash.message : '');
+    return typeof x === 'boolean' || (typeof x === 'string' && /vot/i.test(x)) || /unvot|remov|cancel|revok|withdr|took\b[^.]*\bback/i.test(txt) || (left0 != null && left1 != null && left0 !== left1);
+  }
   const respError = (r) => {
     if (!r) return 'Soundeo no ha respondido';
-    const bad = !r.success || (r.flash && /err|fail|warn|danger/i.test(String(r.flash.type || '')));
+    // 2.1.9: un «warning» con success: true no es un error (así contesta Soundeo al quitar el voto: «You took your vote back»)
+    const bad = !r.success || (r.flash && /err|fail|danger/i.test(String(r.flash.type || '')));
     if (!bad) return '';
     const m = plainMsg(r.message || (r.flash && r.flash.message) || '');
     return m ? 'Soundeo dice: ' + m.slice(0, 110) : 'Soundeo no lo ha aceptado';
@@ -4326,7 +4376,12 @@
           return done(false, before, n0, err);
         }
         applyHeader(r);
-        const on = votedFrom(r, before, act.leftBefore, voteLeft());
+        const left1 = voteLeft();
+        if (r.flash && /warn/i.test(String(r.flash.type || '')) && !voteSaid(r, act.leftBefore, left1)) {
+          const m = plainMsg(r.message || r.flash.message || '');
+          return done(false, before, n0, m ? 'Soundeo dice: ' + m.slice(0, 110) : 'Soundeo no lo ha aceptado');
+        }
+        const on = votedFrom(r, before, act.leftBefore, left1);
         let n = [r.votes, r.count, r.number, r.votesCount, r.votes_count].map(toInt).find((x) => x != null);
         if (n == null && n0 != null) n = Math.max(0, n0 + (on === before ? 0 : on ? 1 : -1));
         // que la web de Soundeo quede igual (su contador en la fila y su reproductor)
@@ -4848,7 +4903,7 @@
         savePrefs();
         x.classList.toggle('on', !!prefs[p]);
         if (p === 'skipHeard' || p === 'siteHeard') {
-          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+          setHidden(cur && cur.hide ? hiddenFor(tracks, cur) : new Set());
           setForced(new Set());
           rebuild(current || deck[activeIdx]);
         }
@@ -5109,6 +5164,7 @@
       })(),
       votes: { shapes: Array.from(voteShapes.values()), detect: voteDetect, mine: myVotes.size, votable: tracks.filter((x) => x.vote).length, voted: tracks.filter((x) => x.vote && isVoted(x)).length },
       siteListened: { tracks: tracks.length, siteHeard: tracks.filter((x) => x.siteHeard).length, mine: tracks.filter((x) => heard.has(x.id)).length, heardTotal: heard.size },
+      keep: { lists: Object.keys(keepMap).length, cur: (keepIds(cur) || new Set()).size }, // 2.1.9: escuchadas que se conservan al recargar
     };
     if (t) {
       const fb = origFav(t);
@@ -5300,7 +5356,8 @@
     live.msg = info.msg;
     if (info.title && /^(artist|label|release|page)$/.test(live.kind)) live.title = info.title;
     live.mode = listModeFor(live.tracks);
-    live.hidden = live.hide ? hiddenFor(live.tracks) : new Set();
+    if (!resume) keepReset(live); // abrir la lista desde fuera es una visita nueva; recargar, la misma (2.1.9)
+    live.hidden = live.hide ? hiddenFor(live.tracks, live) : new Set();
     liveSrc = live;
     buildShell();
     root.classList.add('fabon');
@@ -5344,7 +5401,7 @@
         setTimeout(() => toast('Soundeo marca toda esta página como escuchada', 'No usarlo', () => {
           prefs.siteHeard = false;
           savePrefs();
-          setHidden(cur && cur.hide ? hiddenFor(tracks) : new Set());
+          setHidden(cur && cur.hide ? hiddenFor(tracks, cur) : new Set());
           rebuild(deck[0]);
         }), 600);
       }
