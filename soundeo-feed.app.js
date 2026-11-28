@@ -1755,8 +1755,8 @@
   .root.ui3 .mtime{margin:3px 8px 4px;font-size:11px;color:var(--dim);}
   .root.ui3 .mretry{color:#ff8a7a;font-weight:700;font-size:11px;}
   .root.ui3 .chempty{margin:40px 10px;text-align:center;color:var(--mut);font-size:15px;line-height:1.45;}
-  .root.ui3 .chbar{flex:1;display:flex;gap:8px;align-items:center;}
-  .root.ui3 .chtx{flex:1;min-width:0;height:44px;box-sizing:border-box;padding:0 16px;border-radius:22px;border:0;outline:0;background:var(--s2);color:var(--fg);font:inherit;font-size:16px;}
+  .root.ui3 .chbar{flex:1;min-width:0;display:flex;gap:8px;align-items:center;}
+  .root.ui3 .chtx{flex:1 1 auto;width:0;min-width:0;height:44px;box-sizing:border-box;padding:0 16px;border-radius:22px;border:0;outline:0;background:var(--s2);color:var(--fg);font:inherit;font-size:16px;}
   .root.ui3 .chsend{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--acc);color:var(--accInk);}
   .root.ui3 .chsend i{width:20px;height:20px;}
   @media (orientation:portrait),(min-height:501px){
@@ -1767,7 +1767,8 @@
     .root.ui3 .itext .cnote{max-width:calc(100% - 46px);}
     /* tres círculos junto a la portada (Spotify, Apple Music y Enviar): si la portada es pequeña, se juntan y encogen */
     .root.ui3 .opens{gap:clamp(4px, calc((var(--cv, 192px) - 138px) / 2), 14px);}
-    .root.ui3 .opens .mlink{width:min(46px, calc((var(--cv, 192px) - 8px) / 3));height:min(46px, calc((var(--cv, 192px) - 8px) / 3));}
+    .root.ui3 .opens .mlink{--msz:clamp(38px, calc((var(--cv, 192px) - 8px) / 3), 46px);width:var(--msz);height:var(--msz);}
+    .root.ui3 .opens .mlink .mn{font-size:calc(var(--msz) * .2);}
   }
   `;
 
@@ -4825,6 +4826,7 @@
     if (!current || !audio.getAttribute('src')) return;
     // 2.3: canción guardada (Max, chat): su audio puede ser de otra cuenta o viejo; se pide otro una vez
     if (current._st && !current._fresh) { stFresh(current); return; }
+    if (current._st) { toast('Soundeo no da ahora el audio de esta canción'); app && app.classList.remove('spin'); return; }
     const m = (current.preview || '').match(/[?&]t=(\d{9,})/);
     if (m && +m[1] * 1000 < Date.now()) {
       toast('Las previews han caducado', 'Recargar', () => { location.reload(); });
@@ -6238,6 +6240,17 @@
     if (m && (m.b || m.k)) o.meta = { b: m.b || null, k: m.k || null };
     return o;
   }
+  // Lo que llega de otro móvil (o de Dropbox) no es de fiar: la página y el disco solo de soundeo.com (la app los pide
+  // con la sesión y «Abrir en la web» navega a ellos), portada y audio solo https; el id, un número de Soundeo.
+  const safeUrl = (u, site) => {
+    try {
+      const x = new URL(String(u || ''));
+      if (x.protocol !== 'https:') return '';
+      if (site && !/^(www\.)?soundeo\.com$/.test(x.hostname)) return '';
+      return x.href;
+    } catch (e) { return ''; }
+  };
+  const snapOk = (o) => !!o && typeof o === 'object' && /^\d{1,12}$/.test(String(o.id));
   function fromSnap(o, extra) {
     const s = o && typeof o === 'object' ? o : {};
     const t = Object.assign({
@@ -6246,10 +6259,16 @@
       siteHeard: false, fav: false, vote: false, votes: null,
     }, s, extra || {});
     SNAP_KEYS.forEach((k) => { if (k !== 'explicit' && t[k] != null && typeof t[k] !== 'string') t[k] = String(t[k]); });
-    t.downloads = Array.isArray(t.downloads) ? t.downloads.filter((d) => d && d.fmt) : [];
+    t.downloads = Array.isArray(t.downloads) ? t.downloads.filter((d) => d && /^[a-z0-9]{2,8}$/i.test(String(d.fmt))).map((d) => ({ fmt: String(d.fmt), name: String(d.name || 'Archivo').slice(0, 30), size: String(d.size || '').slice(0, 20) })) : [];
     t.explicit = !!t.explicit;
+    t.trackUrl = safeUrl(t.trackUrl, true);
+    t.releaseUrl = safeUrl(t.releaseUrl, true);
+    t.cover = safeUrl(t.cover);
+    t.preview = safeUrl(t.preview);
+    t.labelId = /^\d{1,12}$/.test(t.labelId) ? t.labelId : '';
+    t.genreId = /^\d{1,6}$/.test(t.genreId) ? t.genreId : '';
     // BPM y tono que traía la canción: valen hasta que la app lea los suyos
-    if (s.meta && !metaCache[t.id] && (s.meta.b || s.meta.k)) metaCache[t.id] = { b: s.meta.b || null, k: s.meta.k || null };
+    if (s.meta && typeof s.meta === 'object' && !metaCache[t.id] && (s.meta.b || s.meta.k)) metaCache[t.id] = { b: s.meta.b ? String(s.meta.b).slice(0, 6) : null, k: s.meta.k ? String(s.meta.k).slice(0, 24) : null };
     delete t.meta;
     t._st = true;
     return t;
@@ -6297,13 +6316,13 @@
   const storedUrl = (kind, id) => location.origin + '/sx/' + kind + (id ? '/' + id : '');
   function storedFill(s) {
     if (s.kind === 'max') {
-      s.tracks = maxDb.items.map((x) => fromSnap(x.s, { _maxAt: x.at }));
+      s.tracks = maxDb.items.filter((x) => snapOk(x.s)).map((x) => fromSnap(x.s, { _maxAt: x.at }));
       s.title = 'Max';
       s.msg = 'Aún no tienes canciones Max. Toca la corona, a la izquierda de la estrella, en las que más te gusten.';
     } else {
       const d = chatData(s.conv);
       const c = chatConv(s.conv);
-      s.tracks = d.msgs.filter((m) => m.s && m.s.id).map((m) => fromSnap(m.s, { _from: memName(s.conv, m.from, m.name), _note: m.note || '', _k: m.k }));
+      s.tracks = d.msgs.filter((m) => snapOk(m.s)).map((m) => fromSnap(m.s, { _from: memName(s.conv, m.from, m.name), _note: m.note || '', _k: m.k }));
       // la misma canción enviada dos veces sale una vez (la última)
       const seen = new Set();
       s.tracks = s.tracks.reverse().filter((t) => !seen.has(t.id) && seen.add(t.id)).reverse();
@@ -6580,7 +6599,7 @@
           if (!o || typeof o !== 'object') return;
           const m = { k: x.k, from: String(o.from || ''), name: String(o.name || '').slice(0, 40), at: +o.at || 0 };
           if (typeof o.text === 'string' && o.text.trim()) m.text = o.text.slice(0, 2000);
-          if (o.s && typeof o.s === 'object' && o.s.id) m.s = o.s;
+          if (snapOk(o.s)) m.s = o.s;
           if (typeof o.note === 'string' && o.note.trim()) m.note = o.note.slice(0, 300);
           if (m.text || m.s) got.push(m);
         } catch (e) {}
@@ -6814,7 +6833,14 @@
     storedFill(s);
     const t = s.tracks.find((x) => x.id === String(tid));
     if (t) s.at = t.id;
-    openSource({ kind: 'chat', key: 'chat', conv: id, title: c.name, url: s.url }, { view: 'feed', src: s });
+    if (cur && cur.kind === 'chat' && cur.conv === id) {
+      // su Feed ya está abierto debajo (se fue a la conversación con la pestaña Chat, sin ‹): se rehace con lo nuevo
+      pgClose();
+      storedFill(cur);
+      cur.at = t ? t.id : null;
+      setView('feed');
+      adopt(cur);
+    } else openSource({ kind: 'chat', key: 'chat', conv: id, title: c.name, url: s.url }, { view: 'feed', src: s });
     if (t && byId.get(t.id)) focusPlay(byId.get(t.id));
   }
   // Enlace de invitación (#sxjoin=…): se apunta al arrancar (antes de que la app cambie de página) y se abre al estar lista
@@ -7096,7 +7122,8 @@
         const s = m.s;
         const meta = s.meta || metaCache[s.id] || {};
         const bits = [meta.b ? meta.b + ' BPM' : '', meta.k ? camelot(meta.k) || meta.k : '', s.genre || ''].filter(Boolean).join(' · ');
-        inner = `<button class="mtrk" data-id="${esc(s.id)}"><img alt="" loading="lazy" src="${esc(coverAt(s.cover || '', '110') || s.cover || '')}"><span class="mtt"><b>${esc(s.name || s.full || '')}</b><small>${esc([s.artist, s.mix].filter(Boolean).join(' · '))}</small>${bits ? '<em>' + esc(bits) + '</em>' : ''}</span><span class="mplay">${i('play')}</span></button>${m.note ? '<div class="mnote">' + esc(m.note) + '</div>' : ''}`;
+        const cv = safeUrl(s.cover);
+        inner = `<button class="mtrk" data-id="${esc(s.id)}"><img alt="" loading="lazy" src="${esc(cv ? coverAt(cv, '110') || cv : '')}"><span class="mtt"><b>${esc(s.name || s.full || '')}</b><small>${esc([s.artist, s.mix].filter(Boolean).join(' · '))}</small>${bits ? '<em>' + esc(bits) + '</em>' : ''}</span><span class="mplay">${i('play')}</span></button>${m.note ? '<div class="mnote">' + esc(m.note) + '</div>' : ''}`;
       } else inner = `<div class="mtxt">${esc(m.text || '')}</div>`;
       html += `<div class="msg ${mine ? 'me' : 'ot'}${m.s ? ' trk' : ''}" data-k="${esc(m.k)}">${head}<div class="mbub">${inner}</div><div class="mtime">${hhmm(m.at || Date.now())}${st ? ' · ' + st : ''}</div></div>`;
     });
@@ -7108,7 +7135,7 @@
       const m = d.msgs.find((y) => y.k === k);
       if (m && c) chatPut(c, m);
     }));
-    $$('.mtrk img', box).forEach((im) => { im.onerror = () => { const s = d.msgs.find((y) => y.s && y.s.id === im.closest('.mtrk').dataset.id); if (s && s.s.cover && im.src !== s.s.cover) im.src = s.s.cover; }; });
+    $$('.mtrk img', box).forEach((im) => { im.onerror = () => { const s = d.msgs.find((y) => y.s && String(y.s.id) === im.closest('.mtrk').dataset.id); const u = s && safeUrl(s.s.cover); if (u && im.src !== u) im.src = u; }; });
     // mantener pulsado un mensaje tuyo: borrarlo (para todos)
     $$('.msg.me', box).forEach((x) => {
       let tm = 0;
