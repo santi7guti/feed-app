@@ -6,7 +6,7 @@
   if (window.top !== window.self || window.__SX_FEED__) return;
   window.__SX_FEED__ = 'app';
 
-  const VERSION = '2.2.2';
+  const VERSION = '2.3.0';
 
   /* ───────────────────────── utilidades ───────────────────────── */
   const $ = (s, r = document) => r.querySelector(s);
@@ -865,6 +865,10 @@
     funnel: '<svg viewBox="0 0 24 24"><path d="M4.5 5.5h15l-5.8 6.8v5.4l-3.4 1.8v-7.2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     xs: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     right: '<svg viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    // 2.3 · Max (corona) y enviar a un chat
+    crown: '<svg viewBox="0 0 24 24"><path d="M4.2 17.2 3 8.4l4.9 3.7L12 4.8l4.1 7.3L21 8.4l-1.2 8.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5.2 20.2h13.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    crownOn: '<svg viewBox="0 0 24 24"><path d="M4.2 17.2 3 8.4l4.9 3.7L12 4.8l4.1 7.3L21 8.4l-1.2 8.8z" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5.2 20.2h13.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    send: '<svg viewBox="0 0 24 24"><path d="M20.5 3.5 10 14M20.5 3.5 14 20.5l-4-6.5-6.5-4z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
 
   /* ───────────────────────── estilos ───────────────────────── */
@@ -1672,6 +1676,99 @@
     .root.ui3 .tabs button.on{color:var(--acc);font-weight:750;}
     .root.ui3 .tabs button.on .tpi{background:var(--accSoft);}
   }
+  /* 2.3 · estrella encendida en coral (con el Diseño 2 se perdía el fondo amarillo y quedaba la estrella en negro) */
+  .root.ui3 .rbtn.fav.on{background:rgba(255,255,255,.1);color:var(--acc);}
+  .root.ui3 .rb.rfav.on{color:var(--acc);}
+  /* 2.3 · Max: corona en granate casi violeta, a la izquierda de la estrella (40 px, centrada con ella) */
+  .root.ui3 .rail{position:relative;}
+  .root.ui3 .rbtn.max{position:relative;color:#ffd3ea;background:radial-gradient(circle at 50% 45%,rgba(120,20,80,.38),rgba(255,255,255,.07) 72%);}
+  .root.ui3 .rbtn.max::before{content:"";position:absolute;inset:0;border-radius:50%;padding:2px;background:linear-gradient(140deg,#c2257a,#6a17c9);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;}
+  .root.ui3 .rbtn.max.on{color:#fff;background:linear-gradient(140deg,#a0155f,#5d0f8f);box-shadow:0 0 0 2px rgba(194,37,122,.35),0 0 22px 4px rgba(150,20,110,.6);}
+  .root.ui3 .rbtn.max.on::before{display:none;}
+  .root.ui3 .rbtn.max:active{transform:scale(.92);}
+  .root.ui3 .mlink.snd{--mc:var(--acc);}
+  .root.ui3 .cnote{max-width:100%;margin:0 0 7px;padding:5px 11px;border-radius:13px 13px 13px 4px;background:rgba(255,255,255,.12);font-size:13.5px;font-weight:650;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:fit-content;}
+  .root.ui3 .tbdg{display:none;position:absolute;top:3px;left:calc(50% + 7px);min-width:17px;height:17px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:var(--acc);color:var(--accInk);font-size:10.5px;font-weight:850;line-height:17px;text-align:center;}
+  .root.ui3 .tbdg.on{display:block;}
+  .root.ui3 .hmtile.hm-max{grid-column:1 / -1;min-height:84px;background:linear-gradient(135deg,rgba(160,21,95,.62),rgba(93,15,143,.55));}
+  .root.ui3 .hm-max .hmti{background:rgba(255,255,255,.16);color:#fff;}
+  /* 2.3 · chat */
+  .root.ui3 .pga{display:flex;flex:none;}
+  .root.ui3 .pga:empty{display:none;}
+  .root.ui3 .chnote{margin:14px 4px 0;font-size:12.5px;line-height:1.4;color:var(--dim);text-align:center;}
+  .root.ui3 .chact{display:flex;gap:10px;margin:6px 0 14px;}
+  .root.ui3 .chact .btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;}
+  .root.ui3 .chact .btn i{width:19px;height:19px;}
+  .root.ui3 .chlist,.root.ui3 .chpick{display:flex;flex-direction:column;gap:6px;}
+  .root.ui3 .chrow{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;box-sizing:border-box;border-radius:16px;background:var(--s1);text-align:left;}
+  .root.ui3 .chav{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:hsl(var(--ih,20),55%,34%);color:#fff;font-size:18px;font-weight:800;}
+  .root.ui3 .chrt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .root.ui3 .chrt b{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .chrt small{font-size:13px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .chrow.unread .chrt small{color:var(--fg);font-weight:600;}
+  .root.ui3 .chrm{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}
+  .root.ui3 .chrm em{font-style:normal;font-size:12px;color:var(--dim);}
+  .root.ui3 .chn{font-style:normal;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:10px;background:var(--acc);color:var(--accInk);font-size:11.5px;font-weight:850;line-height:20px;text-align:center;}
+  .root.ui3 .chpick .chrow.on{background:var(--accSoft);box-shadow:inset 0 0 0 1.5px var(--acc);}
+  .root.ui3 .chrad{flex:none;width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 2px rgba(255,255,255,.22);}
+  .root.ui3 .chrow.on .chrad{box-shadow:inset 0 0 0 6px var(--acc);}
+  .root.ui3 .chown .chrow{margin-bottom:6px;}
+  .root.ui3 .chset{margin-top:22px;}
+  .root.ui3 .chform{display:flex;flex-direction:column;gap:10px;padding-top:6px;}
+  .root.ui3 .chlab{margin:10px 4px 0;font-size:12px;font-weight:800;letter-spacing:.07em;color:var(--mut);}
+  .root.ui3 .chin1{display:block;width:100%;box-sizing:border-box;padding:13px 14px;border-radius:14px;border:0;outline:0;background:var(--s2);color:var(--fg);font:inherit;font-size:16px;}
+  .root.ui3 textarea.chin1{resize:none;font-family:ui-monospace,Menlo,monospace;font-size:14px;line-height:1.35;word-break:break-all;}
+  .root.ui3 .cherr{color:#ff8a7a;font-size:13.5px;line-height:1.4;}
+  .root.ui3 .cherr:empty{display:none;}
+  .root.ui3 .chp{margin:4px 2px;font-size:15px;line-height:1.45;color:var(--mut);}
+  .root.ui3 .chp b{color:var(--fg);}
+  .root.ui3 .chstep{display:flex;gap:10px;align-items:flex-start;margin-top:8px;font-size:15px;line-height:1.4;}
+  .root.ui3 .chstep>b{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accSoft);color:var(--acc);font-size:13px;}
+  .root.ui3 a.btn{display:flex;align-items:center;justify-content:center;text-decoration:none;}
+  .root.ui3 .chopen.wait{opacity:.5;}
+  .root.ui3 .chkey{padding:13px 14px;border-radius:14px;background:var(--s2);font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.4;word-break:break-all;-webkit-user-select:all;user-select:all;}
+  .root.ui3 .chsong{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;background:var(--s1);}
+  .root.ui3 .chsong img{flex:none;width:56px;height:56px;border-radius:10px;object-fit:cover;background:var(--s2);}
+  .root.ui3 .chper{display:flex;align-items:center;gap:12px;margin:10px 0;}
+  .root.ui3 .chper small{margin-left:4px;}
+  .root.ui3 .pg[data-id=chat-conv] .pgb{padding-top:0;padding-bottom:12px;}
+  .root.ui3 .chmsgs{display:flex;flex-direction:column;gap:4px;padding-top:4px;}
+  .root.ui3 .chday{align-self:center;margin:14px 0 6px;padding:3px 10px;border-radius:10px;background:var(--s1);color:var(--mut);font-size:12px;font-weight:700;}
+  .root.ui3 .msg{display:flex;flex-direction:column;max-width:84%;}
+  .root.ui3 .msg.me{align-self:flex-end;align-items:flex-end;}
+  .root.ui3 .msg.ot{align-self:flex-start;align-items:flex-start;}
+  .root.ui3 .mwho{margin:8px 0 3px 12px;font-size:12.5px;font-weight:800;color:hsl(var(--ih,20),75%,70%);}
+  .root.ui3 .mbub{border-radius:18px;padding:9px 13px;background:var(--s2);font-size:15.5px;line-height:1.38;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
+  .root.ui3 .msg.me .mbub{background:var(--accSoft);box-shadow:inset 0 0 0 1px var(--accLine);border-bottom-right-radius:6px;}
+  .root.ui3 .msg.ot .mbub{border-bottom-left-radius:6px;}
+  .root.ui3 .msg.trk .mbub{padding:8px;}
+  .root.ui3 .mtxt{white-space:pre-wrap;word-break:break-word;}
+  .root.ui3 .mtrk{display:flex;align-items:center;gap:11px;width:250px;max-width:100%;text-align:left;}
+  .root.ui3 .mtrk img{flex:none;width:60px;height:60px;border-radius:11px;object-fit:cover;background:var(--s3);}
+  .root.ui3 .mtt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .root.ui3 .mtt b{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .mtt small{font-size:12.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .mtt em{font-style:normal;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .root.ui3 .mplay{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--acc);color:var(--accInk);}
+  .root.ui3 .mplay i{width:16px;height:16px;}
+  .root.ui3 .mnote{margin:7px 4px 2px;font-size:15px;line-height:1.35;white-space:pre-wrap;word-break:break-word;}
+  .root.ui3 .mtime{margin:3px 8px 4px;font-size:11px;color:var(--dim);}
+  .root.ui3 .mretry{color:#ff8a7a;font-weight:700;font-size:11px;}
+  .root.ui3 .chempty{margin:40px 10px;text-align:center;color:var(--mut);font-size:15px;line-height:1.45;}
+  .root.ui3 .chbar{flex:1;display:flex;gap:8px;align-items:center;}
+  .root.ui3 .chtx{flex:1;min-width:0;height:44px;box-sizing:border-box;padding:0 16px;border-radius:22px;border:0;outline:0;background:var(--s2);color:var(--fg);font:inherit;font-size:16px;}
+  .root.ui3 .chsend{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--acc);color:var(--accInk);}
+  .root.ui3 .chsend i{width:20px;height:20px;}
+  @media (orientation:portrait),(min-height:501px){
+    .root.ui3 .rbtn.max{position:absolute;top:4px;left:-50px;width:40px;height:40px;}
+    .root.ui3 .rbtn.max i{width:20px;height:20px;}
+    /* sitio para la corona: la primera línea y el título se acortan (el resto del texto, no) */
+    .root.ui3 .itext .eyebrow,.root.ui3 .itext .ttl{padding-right:46px;}
+    .root.ui3 .itext .cnote{max-width:calc(100% - 46px);}
+    /* tres círculos junto a la portada (Spotify, Apple Music y Enviar): si la portada es pequeña, se juntan y encogen */
+    .root.ui3 .opens{gap:clamp(4px, calc((var(--cv, 192px) - 138px) / 2), 14px);}
+    .root.ui3 .opens .mlink{width:min(46px, calc((var(--cv, 192px) - 8px) / 3));height:min(46px, calc((var(--cv, 192px) - 8px) / 3));}
+  }
   `;
 
   /* ───────────────────────── app ───────────────────────── */
@@ -1816,7 +1913,7 @@
             <div class="sbody"></div>
           </div>
           <div class="pg">
-            <div class="pgh"><button class="ibtn pgback" aria-label="Atrás">${i('chev')}</button><h2></h2><button class="ibtn pgx" aria-label="Cerrar">${i('close')}</button></div>
+            <div class="pgh"><button class="ibtn pgback" aria-label="Atrás">${i('chev')}</button><h2></h2><div class="pga"></div><button class="ibtn pgx" aria-label="Cerrar">${i('close')}</button></div>
             <div class="pgb"></div>
             <div class="pgf"></div>
           </div>
@@ -1846,7 +1943,7 @@
     $('.bnav', sr).addEventListener('click', () => {
       // 2.1.3 (diseño nuevo): desde el feed de una lista a la que se ha entrado (artista, sello, búsqueda…), ‹ vuelve
       // primero a esa lista, sin cambiar de canción. Antes volvía a la lista anterior y abría su feed: cambiaba la canción.
-      if (stack.length > 1 && prefs.ui2 && view === 'feed') { setView('list'); return; }
+      if (stack.length > 1 && prefs.ui2 && view === 'feed' && !(cur && cur.kind === 'chat')) { setView('list'); return; }
       if (stack.length > 1) goBack();
       else openMenu();
     });
@@ -1938,6 +2035,7 @@
       retryStale();
     });
     document.addEventListener('visibilitychange', retryStale);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && ui3() && chatConvs().length) chatNow(); }); // 2.3
     window.addEventListener('popstate', (e) => {
       if (!isOpen) return;
       try { history.scrollRestoration = 'manual'; } catch (err) {}
@@ -1957,7 +2055,7 @@
       if (want != null) d = Math.min(d, want);
       // 2.1.3 (diseño nuevo): el gesto atrás de Safari hace lo mismo que ‹ en el feed de una lista a la que se ha
       // entrado: va a su lista. El paso del historial se repone, para que el siguiente gesto vuelva a la lista anterior.
-      if (d < stack.length - 1 && prefs.ui2 && view === 'feed' && want == null && !jump && !overOn()) {
+      if (d < stack.length - 1 && prefs.ui2 && view === 'feed' && want == null && !jump && !overOn() && !(cur && cur.kind === 'chat')) {
         setView('list');
         try { history.pushState({ sx: stack.length - 1 }, '', location.href); } catch (err) {}
         return;
@@ -2449,7 +2547,7 @@
     } else if (t === 'home') {
       homeGo();
     } else if (t === 'chat') {
-      if (ui3()) { closeSheets(); closeSearch(); pgOpen('chat', null, { root: true }); } else toast('El chat llega en una próxima versión');
+      chatGo();
     }
     paintTabs();
   }
@@ -2461,7 +2559,7 @@
       // Diseño 2: Home y Chat son pantallas propias; Ajustes es su pestaña (o una capa de Home, con la barra «Lista»).
       // Con la barra «Ajustes», Feed y Lista son la misma pestaña (Feed) y se cambia de vista arriba a la derecha.
       const p0 = pgStack[0] && pgStack[0].id;
-      on = p0 === 'home' || p0 === 'chat' ? p0 : p0 ? (tabsB() ? 'home' : 'settings')
+      on = p0 === 'home' ? p0 : p0 && p0.indexOf('chat') === 0 ? 'chat' : p0 ? (tabsB() ? 'home' : 'settings')
         : srchEl && srchEl.classList.contains('on') ? 'search'
           : (cur && cur.kind === 'search' && view === 'list') || inSearch3() ? 'search' : tabsB() ? view : 'feed';
       $$('.vseg button', root).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
@@ -2486,7 +2584,8 @@
     const k = set.map((x) => x[0]).join() + (ui3() ? '·3' : '');
     if (k === tabsKey) return;
     tabsKey = k;
-    box.innerHTML = set.map(([t, ic, n]) => `<button data-t="${t}">${ui3() ? '<span class="tpi">' + i(ic) + '</span>' : i(ic)}<span>${n}</span></button>`).join('');
+    box.innerHTML = set.map(([t, ic, n]) => `<button data-t="${t}">${ui3() ? '<span class="tpi">' + i(ic) + '</span>' : i(ic)}<span>${n}</span>${ui3() && t === 'chat' ? '<b class="tbdg"></b>' : ''}</button>`).join('');
+    paintChatBadge();
   }
   let ui3Was = false;
   function applyUi3(full) {
@@ -2500,7 +2599,7 @@
     paintOver();
     if (!full) return;
     // sin Diseño 2 no hay Home ni Chat: lo que hubiera encima (Ajustes…) se queda; si no, se cierra
-    if (!on && pgStack.length && /^(home|chat)$/.test(pgStack[0].id)) { if (pgStack.length > 1) pgStack.shift(); else pgClose(); }
+    if (!on && pgStack.length && /^(home|chat)/.test(pgStack[0].id)) { if (pgStack.length > 1) pgStack.shift(); else pgClose(); }
     paintChrome();
     paintTabs();
     // filas y tarjetas llevan piezas propias del Diseño 2 (tono de color, NUEVA…): repintarlas al ponerlo o quitarlo
@@ -2784,7 +2883,7 @@
       kind: 'page', key: null, title: '', url: '', filters: null, canFilter: false, hide: false, loose: false, xhr: false, refId: '', query: '',
       tracks: [], hidden: new Set(), forced: new Set(), pages: newPages(), activeIdx: 0, listDay: 0, listScroll: 0, view: null, mode: 'all',
       loaded: false, loading: null, error: '', msg: '', count: null, follow: null, release: null, cut: 0, live: false, at: null, probe: null,
-      web: '', tries: null, filtersOn: '', bounced: false, needLogin: false, startAt: null,
+      web: '', tries: null, filtersOn: '', bounced: false, needLogin: false, startAt: null, conv: '',
     }, d);
   }
   const setHidden = (set) => { hiddenAtLoad = set; if (cur) cur.hidden = set; };
@@ -2853,7 +2952,7 @@
     $('.srcp span', root).textContent = cur ? (kindName(cur) && !ui3() ? kindName(cur) + ' · ' : '') + cur.title : 'Soundeo';
     if (ui3()) {
       const SIC = { avail: 'dl', all: 'feed2', upcoming: 'calendar', top100: 'trophy', followed: 'users', favs: 'star', downloads: 'check', votes: 'heart' };
-      const KIC = { artist: 'user', label: 'tag', release: 'disc', search: 'search2', genre: 'note', similar: 'spark' };
+      const KIC = { artist: 'user', label: 'tag', release: 'disc', search: 'search2', genre: 'note', similar: 'spark', chat: 'chat2', max: 'crown' };
       const k = cur ? (cur.kind === 'section' || cur.key === 'votes' ? SIC[cur.key] : KIC[cur.kind]) : null;
       $('.srcp .sic', root).innerHTML = ICON[k || 'list2'];
       $('.srcp .srs', root).textContent = !cur ? '' : cur.canFilter ? describeFilters(cur.filters) : cur.key === 'followed' ? 'Sin filtros' : kindName(cur) || (cur.key === 'votes' ? 'Tus votos' : '');
@@ -2866,7 +2965,7 @@
     $('.cs', ctxEl).textContent = '';
     paintTabs(); // la pestaña marcada depende de si lo que se ve es una búsqueda
   }
-  const kindName = (s) => ({ artist: 'Artista', label: 'Sello', release: 'Release', search: 'Búsqueda', genre: 'Género', similar: 'También descargan' }[s.kind] || '');
+  const kindName = (s) => ({ artist: 'Artista', label: 'Sello', release: 'Release', search: 'Búsqueda', genre: 'Género', similar: 'También descargan', chat: 'Chat', max: 'Tu lista' }[s.kind] || '');
   const sameUrl = (a, b) => { try { const x = new URL(a, location.href); const y = new URL(b, location.href); return x.pathname === y.pathname && normFilters(filtersFromUrl(x.href)) === normFilters(filtersFromUrl(y.href)) && (x.searchParams.get('q') || '') === (y.searchParams.get('q') || '') && (x.searchParams.get('page') || '1') === (y.searchParams.get('page') || '1'); } catch (e) { return false; } };
   function openSource(d, opts) {
     opts = opts || {};
@@ -2915,6 +3014,7 @@
     pgClose();
     keepQueue();
     stash();
+    const leaving = stack[stack.length - 1];
     stack.length = depth + 1;
     const s = stack[depth];
     let v = s.view;
@@ -2924,6 +3024,8 @@
     if (v) switchView(v);
     if (!s.loaded) ensureLoaded(s);
     adopt(s);
+    // 2.3: del Feed de las canciones de un chat se vuelve a su conversación
+    if (leaving && leaving.kind === 'chat' && leaving.conv && ui3() && chatConv(leaving.conv)) chatOpenConv(leaving.conv);
   }
   // Soundeo contesta con una página o, en sus bloques "perezosos", con JSON que lleva el HTML dentro.
   function docFromText(txt) {
@@ -2959,6 +3061,8 @@
   }
   function ensureLoaded(s) {
     if (s.loaded) return Promise.resolve(s);
+    // 2.3: Max y las canciones de una conversación están en el móvil (no hay página de Soundeo que pedir)
+    if (s.kind === 'max' || s.kind === 'chat') { storedFill(s); return Promise.resolve(s); }
     if (s.loading) return s.loading;
     s.error = '';
     s.loading = (s.kind === 'similar' ? fetchSimilar(s) : fetchSource(s))
@@ -3080,6 +3184,7 @@
         kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr,
         refId: s.refId, query: s.query, web: s.web, live: s.live, view: s === cur ? view : s.view, at: s === cur ? (deck[activeIdx] ? deck[activeIdx].id : null) : s.at,
         stab: s.stab || undefined, // 2.2.1: la pestaña de unos resultados (Canciones, Artistas…)
+        conv: s.conv || undefined, // 2.3: la conversación de un Feed del chat
       })));
     } catch (e) {}
   }
@@ -3374,24 +3479,27 @@
   }
   function fillCard(c, t) {
     const meta = metaCache[t.id];
-    const where = [parseDay(t.day) ? dayShort(t.day) : '', t.genre].filter(Boolean).map(esc).join(' · ');
+    // 2.3: en el Feed de un chat, quién la mandó (y su nota encima del título); en Max, «Max»
+    const who = t._from ? (t._from === 'Tú' ? 'Enviada por ti' : 'De ' + t._from) : t._maxAt ? 'Max' : '';
+    const where = [who, parseDay(t.day) ? dayShort(t.day) : '', t.genre].filter(Boolean).map(esc).join(' · ');
+    const u3 = ui3();
     const small = t.cover ? ' style="background-image:url(&quot;' + esc(t.cover) + '&quot;)"' : '';
     c.className = 'card paused';
     c.innerHTML = `<canvas class="bg" width="32" height="56"></canvas>
       <div class="cin">
         <div class="mid">
-          <div class="top"><div class="cvw"${small}><img alt="" decoding="async"><div class="pind">${i('play')}</div><div class="eq"><span></span><span></span><span></span><span></span></div></div><div class="opens">${musicLinksHtml(t)}</div></div>
+          <div class="top"><div class="cvw"${small}><img alt="" decoding="async"><div class="pind">${i('play')}</div><div class="eq"><span></span><span></span><span></span><span></span></div></div><div class="opens">${musicLinksHtml(t)}${u3 ? `<button class="mlink snd" aria-label="Enviar a un chat"><span class="mn">Enviar</span><i class="mgo">${ICON.send}</i></button>` : ''}</div></div>
           <div class="info">
             <div class="itext">
               <div class="eyebrow"><span class="ix">${esc(counterText(t))}</span>${where ? ' · <b>' + where + '</b>' : ''}</div>
-              <div class="ttl">${esc(t.name)}</div>
+              ${t._note ? '<div class="cnote">' + esc(t._note) + '</div>' : ''}<div class="ttl">${esc(t.name)}</div>
               <div class="mix">${esc(t.mix)}</div>
               <div class="art">${esc(t.artist)}</div>
               <div class="rel">${t.release ? '<span class="relb">' + esc(t.release) + '</span>' : ''}${t.release && t.label ? ' · ' : ''}${t.label ? '<span class="lbl">' + esc(t.label) + '</span>' : ''}</div>
               <div class="chips"><span class="chip key"${ui3() && meta && meta.k && keyHue(meta.k) != null ? ` style="--kh:${keyHue(meta.k)}"` : ''}>${metaChipKey(meta)}</span><span class="chip bpmc">${metaChipBpm(meta)}</span>${t.duration ? `<span class="chip mut">${esc(t.duration)}</span>` : ''}${t.explicit ? '<span class="chip e">E</span>' : ''}${t.date ? `<span class="chip mut">${esc(t.date)}</span>` : ''}</div>
             </div>
             <div class="rail">
-              <button class="rbtn fav" aria-label="Guardar">${i('star')}</button>
+              ${u3 ? `<button class="rbtn max" aria-label="Max">${i('crown')}</button>` : ''}<button class="rbtn fav" aria-label="Guardar">${i('star')}</button>
               ${dlButtonHtml(t)}
               <button class="rbtn more" aria-label="Más">${i('more')}</button>
             </div>
@@ -3404,6 +3512,10 @@
     paintBg($('.bg', c), t.cover);
     $('.cvw', c).addEventListener('click', togglePlay);
     $('.fav', c).addEventListener('click', () => toggleFav(t));
+    const mxb = $('.max', c);
+    if (mxb) mxb.addEventListener('click', () => toggleMax(t));
+    const sdb = $('.snd', c);
+    if (sdb) sdb.addEventListener('click', () => sendToChat(t));
     const dlb = $('.dl', c);
     if (dlb) dlb.addEventListener('click', () => askDownload(t));
     const vb = $('.vote', c);
@@ -3415,6 +3527,7 @@
     const lbl = $('.lbl', c);
     if (lbl) lbl.addEventListener('click', () => (t.labelId ? openLabel(t) : moreSheet(t)));
     paintFav(c, t);
+    paintMax(c, t);
     if (current && current.id === t.id) paintPlayer();
   }
   // Fondo difuminado: la portada pequeña reducida a unos pocos píxeles y estirada (sin filtros de desenfoque).
@@ -4461,7 +4574,8 @@
     clearTimeout(aheadT);
     aheadAt = performance.now();
     if (!prefs.preload || pl.broken || document.hidden || !current || !wantPlay) return;
-    const want = upcoming(2).filter((t) => t.preview);
+    upcoming(2).forEach((t) => { if (t._st && !t._fresh && !pv(t)) freshen(t); }); // 2.3: guardadas sin audio que valga
+    const want = upcoming(2).filter((t) => pv(t));
     const keep = new Set(want.map((t) => t.id));
     keep.add(current.id);
     if (pl.prevId) keep.add(pl.prevId);
@@ -4472,7 +4586,7 @@
       if (!a) return;
       a._sxId = t.id;
       a._sxAt = performance.now();
-      try { a.src = t.preview; a.load(); pl.primes++; } catch (e) { a._sxId = null; }
+      try { a.src = pv(t); a.load(); pl.primes++; } catch (e) { a._sxId = null; }
     });
   }
   function unlockPlayers() {
@@ -4498,8 +4612,9 @@
       pl.prevId = current ? current.id : null;
       current = t;
       seekTarget = null;
-      if (!t.preview && play) toast('Este track no tiene preview');
-      const pre = prefs.preload && !pl.broken && !document.hidden && t.preview ? players.find((a) => a !== audio && a._sxId === t.id && !a.error) : null;
+      // 2.3: una canción guardada (Max, chat) cuyo audio ha caducado: se pide otro y suena en cuanto llegue
+      if (!pv(t)) { if (t._st) stFresh(t); else if (play) toast('Este track no tiene preview'); }
+      const pre = prefs.preload && !pl.broken && !document.hidden && pv(t) ? players.find((a) => a !== audio && a._sxId === t.id && !a.error) : null;
       if (pre) {
         // ya estaba cargada en otro elemento: pasar a ese
         swapped = audio;
@@ -4514,7 +4629,7 @@
         pl.info = null;
         players.forEach((a) => { if (a !== audio && a._sxId === t.id) a._sxId = null; });
         audio._sxId = t.id;
-        audio.src = t.preview || '';
+        audio.src = pv(t);
         try { audio.load(); } catch (e) {}
       }
       if (app) app.classList.remove('spin');
@@ -4544,7 +4659,7 @@
           audio = swapped;
           dropPreloads();
           audio._sxId = t.id;
-          audio.src = t.preview || '';
+          audio.src = pv(t);
           try { audio.load(); } catch (e) {}
           paintProgress();
           const p2 = audio.play();
@@ -4708,6 +4823,8 @@
   });
   onAudio('error', () => {
     if (!current || !audio.getAttribute('src')) return;
+    // 2.3: canción guardada (Max, chat): su audio puede ser de otra cuenta o viejo; se pide otro una vez
+    if (current._st && !current._fresh) { stFresh(current); return; }
     const m = (current.preview || '').match(/[?&]t=(\d{9,})/);
     if (m && +m[1] * 1000 < Date.now()) {
       toast('Las previews han caducado', 'Recargar', () => { location.reload(); });
@@ -4979,6 +5096,21 @@
   const plainMsg = (m) => clean(String(m || '').replace(/<[^>]+>/g, ' '));
   function toggleFav(t) {
     if (favPending.has(t.id)) return; // ya hay una petición en curso
+    // 2.3: de una canción guardada (Max, chat) no se sabe si ya tiene estrella, y la llamada de Soundeo es un interruptor:
+    // primero se pregunta (la misma consulta que se hace al escucharla)
+    if (t._st && !favKnown.has(t.id)) {
+      favPending.set(t.id, true);
+      repaintFav(t.id);
+      siteRequest('/tracks/status/' + encodeURIComponent(t.id), 'GET').then(({ r }) => {
+        favPending.delete(t.id);
+        const tr = r && r.track;
+        if (!tr || !Object.prototype.hasOwnProperty.call(tr, 'favored')) { repaintFav(t.id); toast('No se ha podido saber si ya estaba en favoritos'); return; }
+        setFavKnown(t.id, !!tr.favored, t);
+        if (tr.favored) { repaintFav(t.id); toast('Ya estaba en favoritos'); return; }
+        toggleFav(t);
+      }).catch(() => { favPending.delete(t.id); repaintFav(t.id); toast('No se ha podido guardar'); });
+      return;
+    }
     const before = isFav(t);
     const c0 = favCount();
     const t0 = Date.now();
@@ -5232,6 +5364,11 @@
   function moreSheet(t) {
     const opts = [];
     const m = metaCache[t.id];
+    if (ui3()) {
+      const mx = isMax(t);
+      opts.push({ label: mx ? 'Quitar de Max' : 'Añadir a Max', hint: mx ? 'Está en tu lista Max' : 'Tu lista de las que más te gustan', icon: mx ? 'crownOn' : 'crown', cls: 'omax', fn: () => toggleMax(t) });
+      opts.push({ label: 'Enviar a un chat', hint: 'A una de tus conversaciones', icon: 'send', cls: 'osend', fn: () => sendToChat(t) });
+    }
     if (m && m.ar && m.ar.length) m.ar.slice(0, 4).forEach((a) => opts.push({ label: a[1], hint: 'Artista · ver sus tracks', icon: 'user', fn: () => openSource(artistDesc(a[0], a[1]), { view: 'list' }) }));
     else if (t.artist) opts.push({ label: t.artist, hint: 'Artista · ver sus tracks', icon: 'user', fn: () => openArtist(t) });
     if (t.releaseUrl) opts.push({ label: t.release || 'Release', hint: 'Release · ver todos sus tracks', icon: 'disc', fn: () => openRelease(t) });
@@ -5332,6 +5469,7 @@
     if (!keep) { try { const a = shadow && shadow.activeElement; if (a && pgEl.contains(a)) a.blur(); } catch (e) {} }
     body.textContent = '';
     foot.textContent = '';
+    $('.pga', pgEl).textContent = ''; // 2.3: el botón propio de cada pantalla (lo pone ella)
     pgEl.dataset.id = top.id;
     pgEl.classList.toggle('sub', pgStack.length > 1);
     pgEl.classList.add('on');
@@ -5490,7 +5628,7 @@
     return folBusy;
   }
   // «Sigue escuchando»: la última canción que sonó y la lista de la que venía
-  const navDesc = (s) => (s ? { kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr, refId: s.refId, query: s.query, web: s.web } : null);
+  const navDesc = (s) => (s ? { kind: s.kind, key: s.key, title: s.title, url: s.url, filters: s.filters, canFilter: s.canFilter, hide: s.hide, loose: s.loose, xhr: s.xhr, refId: s.refId, query: s.query, web: s.web, conv: s.conv || undefined } : null);
   function saveLastPlay(t) {
     if (!ui3() || !t) return;
     const s = queue && queue.src && queue.src.tracks.includes(t) ? queue.src : tracks.includes(t) ? cur : stack.find((x) => x.tracks.includes(t)) || cur;
@@ -5911,6 +6049,12 @@
       x.addEventListener('click', fn);
       tiles.appendChild(x);
     };
+    // 2.3: Max, a lo ancho
+    const mxn = maxDb.items.length;
+    const mxt = el(`<button class="hmtile hm-max"><span class="hmti">${i('crownOn')}</span><b>${esc(fmtN(mxn))}</b><span class="hmtt">Max</span><small>${mxn === 1 ? 'canción' : 'canciones'} · las que más te gustan</small></button>`);
+    mxt.addEventListener('click', openMax);
+    tiles.appendChild(mxt);
+    if (maxTok() && Date.now() - maxSt.at > 5 * 60000) maxSyncSoon(800);
     const fv = favCount();
     const dl = dlLeft();
     const vl = voteLeft();
@@ -5955,16 +6099,1086 @@
     b.appendChild(el(`<div class="hmstats"><span><b>${heardTodayN()}</b><small>escuchadas hoy</small></span><span><b>${fmtN(unheard)}</b><small>sin escuchar${cur ? ' en ' + esc(cur.title) : ''}</small></span></div>`));
     return 'Home';
   }
-  function chat3(b) {
-    b.innerHTML = `<div class="cht">
-      <div class="chb"><span class="chb1"></span><span class="chb2">${i('note')}</span></div>
-      <span class="chs">MUY PRONTO</span>
-      <h3>Pásate canciones con tus amigos</h3>
-      <p>Conversaciones con clave, canciones como tarjeta y un toque para escucharlas en el Feed.</p>
-      <button class="btn full" disabled>Nueva conversación</button>
-      <button class="btn full chline" disabled>Unirme con una clave</button>
-    </div>`;
+  function chat3(b) { return chatList(b); }
+  /* ───────────── 2.3 · Dropbox (chat y Max) ───────────── */
+  // App de Dropbox propia del chat («Soundeo Feed Chat»: solo su carpeta, `Aplicaciones/Soundeo Feed Chat`). Sin
+  // servidor: PKCE con el código que enseña Dropbox (no hay dirección de vuelta, porque la app vive dentro de
+  // soundeo.com) y una llave que se renueva sola. La llave de cada conversación viaja dentro de su clave: así los
+  // amigos entran sin cuenta de Dropbox. Nada de esto toca Soundeo ni la app de Dropbox de SynchroSound.
+  const DBX_KEY = 'kfs13mka8azfee2'; // clave pública de la app (registrada por Tiger el 28 nov); el secreto no hace falta
+  const DBX_API = 'https://api.dropboxapi.com/';
+  const DBX_CONTENT = 'https://content.dropboxapi.com/2/';
+  const dbxAt = new Map(); // llave renovable → { tok, exp, p }
+  const dbxSt = { calls: 0, fails: 0, last: '', errs: [] };
+  const dbxOwn = () => { const a = LS.get('dbx', null); return a && a.r ? String(a.r) : ''; };
+  const rnd = (n) => {
+    const a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return Array.from(a, (x) => '0123456789abcdefghijklmnopqrstuvwxyz'[x % 36]).join('');
+  };
+  const b64u = (buf) => btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(buf)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // (los errores se apuntan para el diagnóstico sin llaves: solo el sitio y el resumen de Dropbox)
+  function dbxErr(where, e) {
+    const m = short((e && (e.summary || e.message)) || e, 90);
+    dbxSt.fails++;
+    dbxSt.errs.push({ t: Date.now(), w: where, m });
+    if (dbxSt.errs.length > 8) dbxSt.errs.shift();
+    return m;
+  }
+  // Conectar (solo quien crea la primera conversación, una vez): la dirección de Dropbox con el reto PKCE. El verificador
+  // se guarda 30 min, para que abrir esta pantalla dos veces no deje inservible el código de la primera.
+  async function dbxAuthUrl() {
+    let p = LS.get('dbxPkce', null);
+    if (!p || !p.v || Date.now() - (p.t || 0) > 30 * 60000) { p = { v: rnd(64), t: Date.now() }; LS.set('dbxPkce', p); }
+    const ch = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(p.v)));
+    return 'https://www.dropbox.com/oauth2/authorize?client_id=' + DBX_KEY + '&response_type=code&token_access_type=offline&code_challenge_method=S256&code_challenge=' + ch;
+  }
+  async function dbxConnect(code) {
+    const p = LS.get('dbxPkce', null);
+    if (!p || !p.v) throw new Error('Vuelve a abrir Dropbox desde esta pantalla');
+    const res = await fetch(DBX_API + 'oauth2/token', {
+      method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
+      body: new URLSearchParams({ code: String(code).trim(), grant_type: 'authorization_code', code_verifier: p.v, client_id: DBX_KEY }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.refresh_token) {
+      dbxErr('conectar', { message: 'HTTP ' + res.status + ' ' + (j.error || '') });
+      throw new Error(/invalid_grant/.test(j.error || '') ? 'Ese código no vale (caduca a los pocos minutos y solo sirve una vez). Vuelve a abrir Dropbox.' : 'Dropbox no lo ha aceptado (' + res.status + ')');
+    }
+    LS.set('dbx', { r: j.refresh_token, at: Date.now() });
+    LS.del('dbxPkce');
+    dbxAt.set(j.refresh_token, { tok: j.access_token, exp: Date.now() + (j.expires_in || 14400) * 1000, p: null });
+    return j.refresh_token;
+  }
+  function dbxToken(r, force) {
+    const c = dbxAt.get(r) || { tok: '', exp: 0, p: null };
+    dbxAt.set(r, c);
+    if (!force && c.tok && Date.now() < c.exp - 60000) return Promise.resolve(c.tok);
+    if (c.p) return c.p;
+    c.p = fetch(DBX_API + 'oauth2/token', {
+      method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: r, client_id: DBX_KEY }),
+    }).then(async (res) => {
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.access_token) {
+        const e = new Error(res.status === 400 || res.status === 401 ? 'La llave de Dropbox ya no vale' : 'Dropbox: HTTP ' + res.status);
+        e.revoked = res.status === 400 || res.status === 401;
+        throw e;
+      }
+      c.tok = j.access_token;
+      c.exp = Date.now() + (j.expires_in || 14400) * 1000;
+      return c.tok;
+    }).finally(() => { c.p = null; });
+    return c.p;
+  }
+  // La cabecera Dropbox-API-Arg solo admite ASCII
+  const dbxArg = (o) => JSON.stringify(o).replace(/[\u007f-￿]/g, (ch) => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+  async function dbxCall(r, kind, ep, arg, body) {
+    for (let k = 0; k < 2; k++) {
+      const tok = await dbxToken(r, k > 0);
+      dbxSt.calls++;
+      const h = { Authorization: 'Bearer ' + tok };
+      let url;
+      const init = { method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer', headers: h };
+      if (kind === 'rpc') { url = DBX_API + '2/' + ep; h['Content-Type'] = 'application/json'; init.body = JSON.stringify(arg); }
+      else {
+        url = DBX_CONTENT + ep;
+        h['Dropbox-API-Arg'] = dbxArg(arg);
+        if (kind === 'up') { h['Content-Type'] = 'application/octet-stream'; init.body = body; }
+      }
+      const res = await fetch(url, init);
+      dbxSt.last = ep + ' ' + res.status;
+      if (res.status === 401 && k === 0) continue; // llave de acceso caducada: se pide otra una vez
+      if (res.ok) return kind === 'down' ? res.text() : res.json().catch(() => ({}));
+      const txt = await res.text().catch(() => '');
+      let j = null;
+      try { j = JSON.parse(txt); } catch (e) { j = null; }
+      const er = new Error('Dropbox ' + res.status + (j && j.error_summary ? ': ' + j.error_summary : ''));
+      er.status = res.status;
+      er.summary = (j && j.error_summary) || '';
+      if (res.status === 429) er.retry = parseInt(res.headers.get('Retry-After') || '30', 10) || 30;
+      throw er;
+    }
+    throw new Error('Dropbox: sin permiso');
+  }
+  const dbxRpc = (r, ep, arg) => dbxCall(r, 'rpc', ep, arg);
+  const notFound = (e) => !!e && e.status === 409 && /not_found/.test(e.summary || '');
+  const dbxGet = (r, path) => dbxCall(r, 'down', 'files/download', { path }).catch((e) => { if (notFound(e)) return null; throw e; });
+  // `add` no pisa nunca nada (si ya existe, Dropbox dice «conflict»); `overwrite`, solo para los archivos de cada uno
+  const dbxPut = (r, path, text, mode) => dbxCall(r, 'up', 'files/upload', { path, mode: mode || 'add', autorename: false, mute: true }, text);
+  // Cuenta que hace de dueña (la de quien conecta Dropbox). Tras borrar Safari lo guardado, al volver a conectar se
+  // recupera su identidad (su lista Max y sus mensajes) desde `/owner.json`.
+  async function dbxAfterConnect(r) {
+    let me = chatMe(false);
+    try {
+      const txt = await dbxGet(r, '/owner.json');
+      const o = txt ? JSON.parse(txt) : null;
+      const fresh = !me || (!chatConvs().length && !maxDb.items.length && !Object.keys(maxDb.del).length);
+      if (o && o.id && fresh && (!me || me.id !== o.id)) {
+        me = { id: String(o.id), name: (me && me.name) || o.name || '' };
+        LS.set('chatMe', me);
+      }
+    } catch (e) { dbxErr('dueño', e); }
+    me = chatMe(true);
+    dbxPut(r, '/owner.json', JSON.stringify({ v: 1, id: me.id, name: me.name || '' }), 'overwrite').catch((e) => dbxErr('dueño', e));
+    chatOwnList = null;
+    maxSyncSoon(300);
+  }
+
+  /* ───────────── 2.3 · canciones guardadas (Max y chat) ───────────── */
+  // Una canción se guarda con lo que hace falta para pintarla sin pedir nada a Soundeo. El audio no: su dirección caduca
+  // (`t=` en la dirección, unos 3 días) y puede ir con la cuenta de quien la pidió, así que se vuelve a pedir al sonar.
+  const SNAP_KEYS = ['id', 'full', 'artist', 'name', 'mix', 'trackUrl', 'cover', 'preview', 'duration', 'release', 'releaseUrl', 'label', 'labelId', 'genre', 'genreId', 'date', 'explicit'];
+  function snapOf(t) {
+    const o = {};
+    SNAP_KEYS.forEach((k) => { if (t[k] != null && t[k] !== '' && t[k] !== false) o[k] = t[k]; });
+    o.id = String(t.id);
+    if (t.downloads && t.downloads.length) o.downloads = t.downloads.map((d) => ({ fmt: d.fmt, name: d.name, size: d.size }));
+    const m = metaCache[t.id];
+    if (m && (m.b || m.k)) o.meta = { b: m.b || null, k: m.k || null };
+    return o;
+  }
+  function fromSnap(o, extra) {
+    const s = o && typeof o === 'object' ? o : {};
+    const t = Object.assign({
+      id: '', full: '', artist: '', name: '', mix: '', trackUrl: '', cover: '', preview: '', duration: '', release: '', releaseUrl: '',
+      label: '', labelId: '', genre: '', genreId: '', date: '', day: '', explicit: false, downloads: [], siteDownloaded: false,
+      siteHeard: false, fav: false, vote: false, votes: null,
+    }, s, extra || {});
+    SNAP_KEYS.forEach((k) => { if (k !== 'explicit' && t[k] != null && typeof t[k] !== 'string') t[k] = String(t[k]); });
+    t.downloads = Array.isArray(t.downloads) ? t.downloads.filter((d) => d && d.fmt) : [];
+    t.explicit = !!t.explicit;
+    // BPM y tono que traía la canción: valen hasta que la app lea los suyos
+    if (s.meta && !metaCache[t.id] && (s.meta.b || s.meta.k)) metaCache[t.id] = { b: s.meta.b || null, k: s.meta.k || null };
+    delete t.meta;
+    t._st = true;
+    return t;
+  }
+  const prevExp = (u) => { const m = /[?&]t=(\d{9,})/.exec(u || ''); return m ? +m[1] * 1000 : 0; };
+  const prevStale = (u) => !u || (prevExp(u) > 0 && prevExp(u) < Date.now() + 10 * 60000);
+  // La dirección del audio que se usa: la de la canción, salvo una guardada que ya ha caducado (se pide otra)
+  const pv = (t) => (t && t._st && prevStale(t.preview) ? '' : (t && t.preview) || '');
+  const freshMap = new Map(); // id → dirección de audio leída en esta visita
+  async function freshFrom(url, id) {
+    const { doc, finalUrl } = await fetchDoc(url);
+    const info = readDoc(doc, finalUrl);
+    info.tracks.forEach((x) => { if (x.preview) freshMap.set(String(x.id), x.preview); });
+    return freshMap.get(String(id)) || '';
+  }
+  // Una vez por visita: la página de su disco (que la app ya sabe leer) y, si no, la búsqueda de Soundeo
+  function freshen(t) {
+    if (t._fp) return t._fp;
+    t._fp = (async () => {
+      let u = freshMap.get(String(t.id)) || '';
+      try { if (!u && t.releaseUrl) u = await freshFrom(t.releaseUrl, t.id); } catch (e) { u = ''; }
+      try { if (!u) u = await freshFrom(location.origin + '/search?q=' + encodeURIComponent(songQuery(t)), t.id); } catch (e) { u = ''; }
+      if (u) t.preview = u;
+      t._fresh = Date.now();
+      stSt.n++;
+      if (!u) stSt.miss++;
+    })().finally(() => { t._fp = null; });
+    return t._fp;
+  }
+  const stSt = { n: 0, miss: 0, retry: 0 };
+  // Canción guardada que no tiene audio que valga (o que ha fallado): se pide otro y, si sigue siendo la que toca, suena
+  function stFresh(t) {
+    if (!t || t._fresh) return;
+    stSt.retry++;
+    freshen(t).then(() => {
+      if (!current || current.id !== t.id || !t.preview) return;
+      if (audio._sxId === t.id && audio.getAttribute('src') === t.preview && !audio.error) return;
+      audio._sxId = t.id;
+      audio.src = t.preview;
+      try { audio.load(); } catch (e) {}
+      if (wantPlay) { const p = audio.play(); if (p && p.catch) p.catch(() => { wantPlay = false; paintPlayer(); toast('Toca ▶ para reproducir'); }); }
+    });
+  }
+  // Fuentes que no salen de una página de Soundeo: Max y las canciones de una conversación
+  const storedUrl = (kind, id) => location.origin + '/sx/' + kind + (id ? '/' + id : '');
+  function storedFill(s) {
+    if (s.kind === 'max') {
+      s.tracks = maxDb.items.map((x) => fromSnap(x.s, { _maxAt: x.at }));
+      s.title = 'Max';
+      s.msg = 'Aún no tienes canciones Max. Toca la corona, a la izquierda de la estrella, en las que más te gusten.';
+    } else {
+      const d = chatData(s.conv);
+      const c = chatConv(s.conv);
+      s.tracks = d.msgs.filter((m) => m.s && m.s.id).map((m) => fromSnap(m.s, { _from: memName(s.conv, m.from, m.name), _note: m.note || '', _k: m.k }));
+      // la misma canción enviada dos veces sale una vez (la última)
+      const seen = new Set();
+      s.tracks = s.tracks.reverse().filter((t) => !seen.has(t.id) && seen.add(t.id)).reverse();
+      s.title = c ? c.name : s.title || 'Chat';
+      s.msg = 'En esta conversación aún no hay canciones.';
+    }
+    s.mode = 'all';
+    s.hidden = new Set();
+    s.loaded = true;
+  }
+
+  /* ───────────── 2.3 · Max ───────────── */
+  // Las canciones que más le gustan a cada uno: aparte de la estrella de Soundeo (botones independientes, decidido por
+  // Tiger: Max no toca nada en Soundeo). Se guardan en el móvil y, con Dropbox, en `/max/<id>.json` (uno por persona).
+  let maxDb = LS.get('max', null);
+  if (!maxDb || !Array.isArray(maxDb.items)) maxDb = { v: 1, items: [], del: {} };
+  if (!maxDb.del || typeof maxDb.del !== 'object') maxDb.del = {};
+  let maxIds = new Set(maxDb.items.map((x) => String(x.id)));
+  const isMax = (t) => !!t && maxIds.has(String(t.id));
+  const maxSt = { at: 0, err: '', n: 0, busy: false, again: false, up: 0 };
+  function maxSave() {
+    maxDb.v = 1;
+    LS.set('max', maxDb);
+    maxIds = new Set(maxDb.items.map((x) => String(x.id)));
+  }
+  function paintMax(scope, t) {
+    const on = isMax(t);
+    scope.querySelectorAll('.max').forEach((b) => {
+      b.classList.toggle('on', on);
+      const ic = b.querySelector('i');
+      if (ic) ic.innerHTML = on ? ICON.crownOn : ICON.crown;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function repaintMax(id) {
+    const c = cardById(id);
+    const t = byId.get(id) || (current && current.id === id ? current : null);
+    if (c && t) paintMax(c, t);
+  }
+  function toggleMax(t) {
+    if (!t || !t.id) return;
+    const id = String(t.id);
+    const now = Date.now();
+    if (maxIds.has(id)) {
+      maxDb.items = maxDb.items.filter((x) => String(x.id) !== id);
+      maxDb.del[id] = now;
+      toast('Quitada de Max');
+    } else {
+      delete maxDb.del[id];
+      maxDb.items.unshift({ id, at: now, s: snapOf(t) });
+      toast('En Max');
+    }
+    maxSave();
+    repaintMax(id);
+    maxSyncSoon();
+  }
+  // Juntar lo del móvil con lo de Dropbox: gana lo último que se hizo con cada canción (poner o quitar)
+  function maxMerge(a, b) {
+    if (!b || !Array.isArray(b.items)) return { v: 1, items: a.items.slice(), del: Object.assign({}, a.del) };
+    const del = {};
+    [a.del || {}, b.del || {}].forEach((d) => Object.keys(d).forEach((id) => { del[id] = Math.max(+del[id] || 0, +d[id] || 0); }));
+    const by = new Map();
+    [].concat(b.items, a.items).forEach((x) => {
+      if (!x || x.id == null) return;
+      const id = String(x.id);
+      const o = by.get(id);
+      if (!o || (+x.at || 0) >= (+o.at || 0)) by.set(id, Object.assign({}, x, { id }));
+    });
+    const items = Array.from(by.values()).filter((x) => !(del[x.id] && del[x.id] >= (+x.at || 0))).sort((x, y) => (+y.at || 0) - (+x.at || 0));
+    items.forEach((x) => { delete del[x.id]; });
+    const old = Date.now() - 90 * 86400000; // lo quitado hace más de 90 días ya no hace falta recordarlo
+    Object.keys(del).forEach((id) => { if (del[id] < old) delete del[id]; });
+    return { v: 1, items, del };
+  }
+  const maxSig = (d) => JSON.stringify([(d.items || []).map((x) => [String(x.id), +x.at || 0]), Object.keys(d.del || {}).sort().map((k) => [k, +d.del[k]])]);
+  const maxTok = () => dbxOwn() || (chatConvs().find((c) => c.r && !c.dead) || {}).r || '';
+  let maxT = 0;
+  function maxSyncSoon(ms) { clearTimeout(maxT); maxT = setTimeout(maxSync, ms == null ? 1500 : ms); }
+  async function maxSync() {
+    const r = maxTok();
+    if (!r) return;
+    if (maxSt.busy) { maxSt.again = true; return; }
+    maxSt.busy = true;
+    const me = chatMe(true);
+    const path = '/max/' + me.id + '.json';
+    try {
+      const txt = await dbxGet(r, path);
+      let remote = null;
+      try { remote = txt ? JSON.parse(txt) : null; } catch (e) { remote = null; }
+      const before = maxSig(maxDb);
+      const merged = maxMerge(maxDb, remote);
+      maxDb = merged;
+      maxSave();
+      if (maxSig(merged) !== before) {
+        filled.forEach((c) => { const t = byId.get(c.dataset.id); if (t) paintMax(c, t); });
+        if (cur && cur.kind === 'max' && !cur.loading) { storedFill(cur); if (isOpen) adopt(cur); }
+      }
+      if (!remote || maxSig(remote) !== maxSig(merged) || (remote.name || '') !== (me.name || '')) {
+        await dbxPut(r, path, JSON.stringify({ v: 1, id: me.id, name: me.name || '', items: merged.items, del: merged.del }), 'overwrite');
+        maxSt.up++;
+      }
+      maxSt.at = Date.now();
+      maxSt.err = '';
+      maxSt.n++;
+    } catch (e) {
+      maxSt.err = dbxErr('max', e);
+    } finally {
+      maxSt.busy = false;
+      if (maxSt.again) { maxSt.again = false; maxSyncSoon(400); }
+    }
+  }
+  function openMax() {
+    if (stack.length === 1 && cur && cur.kind === 'max') { storedFill(cur); pgClose(); adopt(cur); setView('list'); return; }
+    const s = mkSrc({ kind: 'max', key: 'max', title: 'Max', url: storedUrl('max') });
+    storedFill(s);
+    openSource({ kind: 'max', key: 'max', title: 'Max', url: s.url }, { root: true, view: 'list', src: s });
+    maxSyncSoon(200);
+  }
+
+  /* ───────────── 2.3 · chat ───────────── */
+  // Conversaciones en la carpeta de la app: `/c/<id>/info.json` (nombre), `/c/<id>/p/<persona>.json` (su nombre) y un
+  // archivo por mensaje, `/c/<id>/m/<clave>.json`, que nunca se pisa (se sube con `add`). La clave de un mensaje empieza
+  // por la hora, así que se ordenan por nombre. Cada móvil guarda su copia y pregunta a Dropbox solo lo que ha cambiado.
+  // Decidido por Tiger (28 nov): sin cifrar; crea conversaciones cualquiera que ya esté en alguna; cada uno borra solo
+  // lo suyo; «Salir» solo la quita de este móvil; invitar con enlace y clave.
+  function chatMe(create) {
+    let m = LS.get('chatMe', null);
+    if (m && (typeof m.id !== 'string' || !/^[a-z0-9]{6,20}$/.test(m.id))) m = null;
+    if (!m && create) { m = { id: rnd(10), name: '' }; LS.set('chatMe', m); }
+    return m;
+  }
+  function chatConvs() {
+    const a = LS.get('chatConvs', []);
+    return Array.isArray(a) ? a.filter((c) => c && typeof c.id === 'string' && c.r) : [];
+  }
+  const chatSaveConvs = (list) => LS.set('chatConvs', list);
+  const chatConv = (id) => chatConvs().find((c) => c.id === id) || null;
+  function chatPatch(id, o) {
+    const list = chatConvs();
+    const c = list.find((x) => x.id === id);
+    if (!c) return null;
+    Object.assign(c, o);
+    chatSaveConvs(list);
+    return c;
+  }
+  const chatMem = new Map(); // id → { mem: {persona: {name, rev}}, info: {...}, msgs: [...], rev: {} }
+  function chatData(id) {
+    let d = chatMem.get(id);
+    if (d) return d;
+    d = LS.get('chatC:' + id, null);
+    if (!d || !Array.isArray(d.msgs)) d = { mem: {}, info: null, msgs: [] };
+    if (!d.mem || typeof d.mem !== 'object') d.mem = {};
+    // lo que se estaba enviando al cerrar la página: se puede reintentar (subir otra vez no duplica)
+    d.msgs.forEach((m) => { if (m._pend) { m._pend = false; m._fail = true; } });
+    chatMem.set(id, d);
+    return d;
+  }
+  let chatSaveT = 0;
+  const chatSaveSoon = () => { clearTimeout(chatSaveT); chatSaveT = setTimeout(chatSaveAll, 300); };
+  function chatSaveAll() {
+    chatMem.forEach((d, id) => {
+      if (!chatConv(id)) return;
+      if (d.msgs.length > 600) d.msgs = d.msgs.slice(-600); // en el móvil, las 600 últimas
+      LS.set('chatC:' + id, d);
+    });
+  }
+  const chatSeen = () => LS.get('chatSeen', {}) || {};
+  const chatAlias = () => LS.get('chatAlias', {}) || {};
+  function memName(convId, pid, fallback) {
+    const me = chatMe(false);
+    if (me && pid === me.id) return 'Tú';
+    const al = chatAlias()[pid];
+    if (al) return al;
+    const d = chatMem.get(convId) || (convId ? chatData(convId) : null);
+    const m = d && d.mem[pid];
+    return (m && m.name) || fallback || 'Alguien';
+  }
+  const unreadOf = (id) => {
+    const me = chatMe(false);
+    const s = chatSeen()[id] || '';
+    return chatData(id).msgs.filter((m) => m.k > s && (!me || m.from !== me.id) && !m._pend).length;
+  };
+  const unreadAll = () => chatConvs().reduce((n, c) => n + (c.gone ? 0 : unreadOf(c.id)), 0);
+  function paintChatBadge() {
+    const b = root && $('.tabs button[data-t="chat"] .tbdg', root);
+    if (!b) return;
+    const n = ui3() ? unreadAll() : 0;
+    b.textContent = n > 99 ? '99+' : n ? String(n) : '';
+    b.classList.toggle('on', n > 0);
+  }
+  function chatMarkSeen(id) {
+    const d = chatData(id);
+    const last = d.msgs.length ? d.msgs[d.msgs.length - 1].k : '';
+    const s = chatSeen();
+    if (last && s[id] !== last) { s[id] = last; LS.set('chatSeen', s); }
+    paintChatBadge();
+  }
+  // Clave: «sx1.<conversación>.<llave de Dropbox>». Se tolera que llegue con espacios o saltos de línea al pegarla.
+  const chatKeyOf = (c) => 'sx1.' + c.id + '.' + c.r;
+  function parseChatKey(txt) {
+    const s = String(txt || '').replace(/\s+/g, '');
+    const m = /sx1\.([a-z0-9]{6,16})\.([A-Za-z0-9_\-.~]{20,})/.exec(s);
+    return m ? { id: m[1], r: m[2] } : null;
+  }
+  const chatLink = (c) => location.origin + '/#sxjoin=' + encodeURIComponent(chatKeyOf(c));
+  const chatSt = { polls: 0, last: 0, busy: new Set(), next: {}, errs: 0, err: '', down: 0 };
+  const msgKey = () => Date.now().toString(36).padStart(9, '0') + '-' + chatMe(true).id + '-' + rnd(4);
+  // Varias descargas a la vez, pero pocas
+  async function pool(list, n, fn) {
+    let k = 0;
+    const run = async () => { while (k < list.length) { const x = list[k++]; await fn(x); } };
+    await Promise.all(Array.from({ length: Math.min(n, list.length) }, run));
+  }
+  const MSG_RE = /^\/c\/([a-z0-9]+)\/m\/([a-z0-9-]+)\.json$/;
+  const MEM_RE = /^\/c\/([a-z0-9]+)\/p\/([a-z0-9]+)\.json$/;
+  async function chatPoll(c, full) {
+    if (!c || c.gone || c.dead || chatSt.busy.has(c.id)) return false;
+    chatSt.busy.add(c.id);
+    const d = chatData(c.id);
+    let changed = false;
+    try {
+      let res = null;
+      let cursor = full ? '' : c.cur || '';
+      if (cursor) {
+        try { res = await dbxRpc(c.r, 'files/list_folder/continue', { cursor }); } catch (e) {
+          if (e.status === 409 && /reset/.test(e.summary || '')) cursor = ''; else throw e;
+        }
+      }
+      const whole = !cursor;
+      if (whole) res = await dbxRpc(c.r, 'files/list_folder', { path: '/c/' + c.id, recursive: true, limit: 2000 });
+      let entries = (res.entries || []).slice();
+      while (res.has_more) { res = await dbxRpc(c.r, 'files/list_folder/continue', { cursor: res.cursor }); entries = entries.concat(res.entries || []); }
+      const have = new Map(d.msgs.map((m) => [m.k, m]));
+      const present = new Set();
+      const want = [];
+      const memWant = [];
+      let infoWant = null;
+      entries.forEach((e) => {
+        const p = String(e.path_lower || '');
+        const mm = MSG_RE.exec(p);
+        const pm = MEM_RE.exec(p);
+        if (e['.tag'] === 'deleted') {
+          if (mm && have.has(mm[2]) && !have.get(mm[2])._pend) { d.msgs = d.msgs.filter((x) => x.k !== mm[2]); changed = true; }
+          return;
+        }
+        if (e['.tag'] !== 'file') return;
+        if (mm) { present.add(mm[2]); if (!have.has(mm[2]) || have.get(mm[2])._fail) want.push({ k: mm[2], path: e.path_lower }); }
+        else if (pm) { const o = d.mem[pm[2]]; if (!o || o.rev !== e.rev) memWant.push({ id: pm[2], path: e.path_lower, rev: e.rev }); }
+        else if (p === '/c/' + c.id + '/info.json' && (!d.info || d.info.rev !== e.rev)) infoWant = { path: e.path_lower, rev: e.rev };
+      });
+      // lista entera: lo que ya no está en Dropbox (borrado por quien lo envió) se quita aquí también
+      if (whole) {
+        const before = d.msgs.length;
+        d.msgs = d.msgs.filter((m) => m._pend || m._fail || present.has(m.k));
+        if (d.msgs.length !== before) changed = true;
+      }
+      if (infoWant) {
+        const txt = await dbxGet(c.r, infoWant.path);
+        if (txt) { try { d.info = Object.assign(JSON.parse(txt), { rev: infoWant.rev }); changed = true; } catch (e) {} }
+        if (d.info && d.info.name && d.info.name !== c.name) chatPatch(c.id, { name: String(d.info.name).slice(0, 60) });
+      }
+      await pool(memWant, 3, async (x) => {
+        const txt = await dbxGet(c.r, x.path);
+        if (!txt) return;
+        try { const o = JSON.parse(txt); d.mem[x.id] = { name: String(o.name || '').slice(0, 40), rev: x.rev }; changed = true; } catch (e) {}
+      });
+      const got = [];
+      await pool(want, 4, async (x) => {
+        const txt = await dbxGet(c.r, x.path);
+        chatSt.down++;
+        if (!txt) return;
+        try {
+          const o = JSON.parse(txt);
+          if (!o || typeof o !== 'object') return;
+          const m = { k: x.k, from: String(o.from || ''), name: String(o.name || '').slice(0, 40), at: +o.at || 0 };
+          if (typeof o.text === 'string' && o.text.trim()) m.text = o.text.slice(0, 2000);
+          if (o.s && typeof o.s === 'object' && o.s.id) m.s = o.s;
+          if (typeof o.note === 'string' && o.note.trim()) m.note = o.note.slice(0, 300);
+          if (m.text || m.s) got.push(m);
+        } catch (e) {}
+      });
+      if (got.length) {
+        const keys = new Set(got.map((m) => m.k));
+        d.msgs = d.msgs.filter((m) => !keys.has(m.k)).concat(got);
+        changed = true;
+      }
+      d.msgs.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+      chatPatch(c.id, { cur: res.cursor, at: Date.now() });
+      chatSt.polls++;
+      chatSt.last = Date.now();
+    } catch (e) {
+      chatSt.errs++;
+      chatSt.err = dbxErr('chat', e);
+      if (notFound(e)) chatPatch(c.id, { gone: true });
+      else if (e.revoked) chatPatch(c.id, { dead: true });
+      else if (e.retry) chatSt.next[c.id] = Date.now() + e.retry * 1000;
+    } finally {
+      chatSt.busy.delete(c.id);
+    }
+    if (changed) { chatSaveSoon(); chatChanged(c.id); } else paintChatBadge();
+    return changed;
+  }
+  // Mientras la app está abierta y a la vista: cada 10 s la conversación abierta y cada 30 s las demás; y todas al volver
+  // a Safari. En segundo plano Safari para la app: no hay avisos (para eso haría falta una app de la pantalla de inicio,
+  // donde Userscripts no se ejecuta).
+  let chatTimer = 0;
+  const chatOpenId = () => {
+    const top = pgStack[pgStack.length - 1];
+    return top && top.id === 'chat-conv' && pgEl && pgEl.classList.contains('on') ? top.arg : null;
+  };
+  function chatTick() {
+    clearTimeout(chatTimer);
+    chatTimer = setTimeout(chatTick, 5000);
+    if (!isOpen || document.hidden || !ui3()) return;
+    const open = chatOpenId();
+    const now = Date.now();
+    chatConvs().forEach((c) => {
+      if (c.gone || c.dead) return;
+      const every = c.id === open ? 10000 : 30000;
+      if (now - (chatSt.next[c.id] || 0) >= every || (chatSt.next[c.id] || 0) > now + 15 * 60000) {
+        chatSt.next[c.id] = now;
+        chatPoll(c);
+      }
+    });
+  }
+  function chatNow(id) {
+    if (id) chatSt.next[id] = 0;
+    else chatSt.next = {};
+    chatTick();
+  }
+  // Algo ha cambiado en una conversación: se repinta lo que esté a la vista, sin tocar lo que se está escribiendo
+  function chatChanged(id) {
+    paintChatBadge();
+    const top = pgStack[pgStack.length - 1];
+    if (!top || !pgEl || !pgEl.classList.contains('on')) return;
+    if (top.id === 'chat-conv' && top.arg === id) { chatPaintMsgs(id); chatMarkSeen(id); }
+    else if (top.id === 'chat') pgRender(true);
+  }
+  const lastMsg = (id) => { const d = chatData(id); return d.msgs.length ? d.msgs[d.msgs.length - 1] : null; };
+  const msgPreview = (id, m) => (m ? memName(id, m.from, m.name) + ': ' + (m.s ? [m.s.name, m.s.artist].filter(Boolean).join(' · ') : m.text || '') : '');
+  function hhmm(ms) { const d = new Date(ms); return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  function dayLabel(ms) {
+    const d = new Date(ms);
+    const t = new Date();
+    const k = (x) => x.getFullYear() * 400 + x.getMonth() * 32 + x.getDate();
+    const y = new Date(t.getTime() - 86400000);
+    if (k(d) === k(t)) return 'Hoy';
+    if (k(d) === k(y)) return 'Ayer';
+    return d.getDate() + ' ' + ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][d.getMonth()] + (d.getFullYear() !== t.getFullYear() ? ' ' + d.getFullYear() : '');
+  }
+  const whenShort = (ms) => (!ms ? '' : dayLabel(ms) === 'Hoy' ? hhmm(ms) : dayLabel(ms));
+  // Crear, unirse, salir
+  async function chatWriteMe(c) {
+    const me = chatMe(true);
+    await dbxPut(c.r, '/c/' + c.id + '/p/' + me.id + '.json', JSON.stringify({ v: 1, id: me.id, name: me.name || '', at: Date.now() }), 'overwrite');
+    const d = chatData(c.id);
+    d.mem[me.id] = { name: me.name || '', rev: '' };
+  }
+  function setMyName(name) {
+    const me = chatMe(true);
+    me.name = clean(name).slice(0, 40);
+    LS.set('chatMe', me);
+  }
+  async function chatCreate(name, myName) {
+    const r = maxTok();
+    if (!r) throw new Error('Conecta Dropbox primero');
+    setMyName(myName);
+    const me = chatMe(true);
+    const id = rnd(8);
+    const nm = clean(name).slice(0, 60) || 'Conversación';
+    await dbxPut(r, '/c/' + id + '/info.json', JSON.stringify({ v: 1, id, name: nm, by: me.id, at: Date.now() }), 'add');
+    const c = { id, name: nm, r, at: Date.now(), cur: '' };
+    chatSaveConvs(chatConvs().concat([c]));
+    await chatWriteMe(c);
+    chatPoll(c, true);
+    maxSyncSoon(500);
+    return c;
+  }
+  async function chatJoin(key, myName) {
+    const p = parseChatKey(key);
+    if (!p) throw new Error('Esa clave no es válida: cópiala entera, empieza por «sx1.»');
+    const was = chatConv(p.id);
+    if (was && !was.gone && !was.dead) return was;
+    const txt = await dbxGet(p.r, '/c/' + p.id + '/info.json');
+    if (!txt) throw new Error('Esa conversación ya no existe');
+    let info = null;
+    try { info = JSON.parse(txt); } catch (e) { info = null; }
+    if (!info) throw new Error('No se ha podido leer la conversación');
+    const nm = clean(myName).slice(0, 40);
+    // ¿ya estaba en esta conversación? (Safari borra lo guardado tras 7 días sin abrir Soundeo): mismo nombre → misma
+    // persona, y así recupera sus mensajes (para borrarlos) y su lista Max
+    if (!chatMe(false) && nm) {
+      try {
+        const lst = await dbxRpc(p.r, 'files/list_folder', { path: '/c/' + p.id + '/p' });
+        for (const e of (lst.entries || []).slice(0, 30)) {
+          const pm = MEM_RE.exec(String(e.path_lower || ''));
+          if (!pm) continue;
+          const t2 = await dbxGet(p.r, e.path_lower);
+          let o = null;
+          try { o = t2 ? JSON.parse(t2) : null; } catch (x) { o = null; }
+          if (o && clean(o.name).toLowerCase() === nm.toLowerCase()) { LS.set('chatMe', { id: pm[2], name: nm }); break; }
+        }
+      } catch (e) { dbxErr('unirse', e); }
+    }
+    setMyName(nm);
+    const c = { id: p.id, name: String(info.name || 'Conversación').slice(0, 60), r: p.r, at: Date.now(), cur: '' };
+    chatSaveConvs(chatConvs().filter((x) => x.id !== p.id).concat([c]));
+    chatMem.delete(p.id);
+    LS.del('chatC:' + p.id);
+    await chatWriteMe(c);
+    await chatPoll(c, true);
+    maxSyncSoon(500);
+    return c;
+  }
+  function chatLeave(id) {
+    chatSaveConvs(chatConvs().filter((c) => c.id !== id));
+    chatMem.delete(id);
+    LS.del('chatC:' + id);
+    const s = chatSeen();
+    delete s[id];
+    LS.set('chatSeen', s);
+    chatOwnList = null;
+    paintChatBadge();
+  }
+  // Conversaciones de la carpeta que no están en este móvil (solo con Dropbox conectado): para volver a entrar
+  let chatOwnList = null;
+  async function chatOwnLoad() {
+    const r = dbxOwn();
+    if (!r) return [];
+    if (chatOwnList && Date.now() - chatOwnList.t < 10 * 60000) return chatOwnList.list;
+    const res = await dbxRpc(r, 'files/list_folder', { path: '/c' }).catch((e) => { if (notFound(e)) return { entries: [] }; throw e; });
+    const ids = (res.entries || []).filter((e) => e['.tag'] === 'folder').map((e) => String(e.name || '').toLowerCase()).filter((x) => /^[a-z0-9]{6,16}$/.test(x));
+    const mine = new Set(chatConvs().map((c) => c.id));
+    const list = [];
+    await pool(ids.filter((x) => !mine.has(x)).slice(0, 12), 3, async (id) => {
+      const txt = await dbxGet(r, '/c/' + id + '/info.json').catch(() => null);
+      let o = null;
+      try { o = txt ? JSON.parse(txt) : null; } catch (e) { o = null; }
+      if (o) list.push({ id, name: String(o.name || 'Conversación').slice(0, 60), at: +o.at || 0 });
+    });
+    list.sort((a, b) => b.at - a.at);
+    chatOwnList = { t: Date.now(), list };
+    return list;
+  }
+  // Enviar: un mensaje es un archivo nuevo; si falla se puede reintentar (subirlo otra vez no lo duplica: el nombre es el mismo)
+  async function chatPut(c, m) {
+    const body = { v: 1, from: m.from, name: m.name, at: m.at };
+    if (m.text) body.text = m.text;
+    if (m.s) body.s = m.s;
+    if (m.note) body.note = m.note;
+    m._pend = true;
+    m._fail = false;
+    chatChanged(c.id);
+    try {
+      await dbxPut(c.r, '/c/' + c.id + '/m/' + m.k + '.json', JSON.stringify(body), 'add');
+      m._pend = false;
+    } catch (e) {
+      // «conflict»: ya estaba subido (un reintento de algo que sí llegó)
+      if (e.status === 409 && /conflict/.test(e.summary || '')) m._pend = false;
+      else { m._pend = false; m._fail = true; dbxErr('enviar', e); }
+    }
+    chatSaveSoon();
+    chatChanged(c.id);
+    return !m._fail;
+  }
+  function chatSend(c, o) {
+    const me = chatMe(true);
+    const m = Object.assign({ k: msgKey(), from: me.id, name: me.name || '', at: Date.now() }, o);
+    const d = chatData(c.id);
+    d.msgs.push(m);
+    d.msgs.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+    chatMarkSeen(c.id);
+    return chatPut(c, m);
+  }
+  async function chatDelete(c, m) {
+    const d = chatData(c.id);
+    try {
+      if (!m._fail) await dbxRpc(c.r, 'files/delete_v2', { path: '/c/' + c.id + '/m/' + m.k + '.json' });
+    } catch (e) {
+      if (!notFound(e)) { toast('No se ha podido borrar: ' + dbxErr('borrar', e)); return; }
+    }
+    d.msgs = d.msgs.filter((x) => x.k !== m.k);
+    chatSaveSoon();
+    chatChanged(c.id);
+    toast('Mensaje borrado');
+  }
+  // Invitar: el menú de compartir del iPhone con el enlace y la clave (si el enlace no abre la app, se pega la clave)
+  function chatInvite(c) {
+    const txt = 'Únete a «' + c.name + '» en el chat de Soundeo Feed:\n' + chatLink(c) + '\n\nSi el enlace no te abre la app, copia esta clave y pégala en Chat → Unirse:\n' + chatKeyOf(c);
+    try {
+      if (navigator.share) { navigator.share({ text: txt }).catch(() => {}); return; }
+    } catch (e) {}
+    copyText(txt);
+  }
+  // Abrir la conversación (la pestaña Chat y, encima, la conversación)
+  function chatOpenConv(id) {
+    if (!ui3()) return;
+    closeSheets();
+    closeSearch();
+    pgOpen('chat', null, { root: true });
+    pgOpen('chat-conv', id);
+  }
+  // Tocar una canción del chat: el Feed con las canciones de la conversación, en esa; ‹ vuelve a la conversación
+  function chatPlay(id, tid) {
+    const c = chatConv(id);
+    if (!c) return;
+    const s = mkSrc({ kind: 'chat', key: 'chat', conv: id, title: c.name, url: storedUrl('chat', id) });
+    storedFill(s);
+    const t = s.tracks.find((x) => x.id === String(tid));
+    if (t) s.at = t.id;
+    openSource({ kind: 'chat', key: 'chat', conv: id, title: c.name, url: s.url }, { view: 'feed', src: s });
+    if (t && byId.get(t.id)) focusPlay(byId.get(t.id));
+  }
+  // Enlace de invitación (#sxjoin=…): se apunta al arrancar (antes de que la app cambie de página) y se abre al estar lista
+  function chatPendingJoin() {
+    const j = SS.get('join', null);
+    if (!j || !j.c) return;
+    SS.del('join');
+    if (Date.now() - (j.t || 0) > 30 * 60000) return;
+    if (!ui3()) { toast('Te han invitado a un chat: está en la versión nueva de la app, que aún no tienes'); return; }
+    setTimeout(() => { closeSheets(); closeSearch(); pgOpen('chat', null, { root: true }); pgOpen('chat-join', { key: j.c }); }, 300);
+  }
+
+  /* ───────────── 2.3 · pantallas del chat ───────────── */
+  const hueOf = (s) => genreHue(String(s || ''));
+  const avatar = (name, hue, cls) => `<span class="chav${cls ? ' ' + cls : ''}" style="--ih:${hue}">${esc(initial(name))}</span>`;
+  function chatGo() {
+    if (!ui3()) { toast('El chat llega en una próxima versión'); return; }
+    closeSheets();
+    closeSearch();
+    pgOpen('chat', null, { root: true });
+  }
+  function chatNewGo() { pgOpen(maxTok() ? 'chat-new' : 'chat-dbx', maxTok() ? null : { next: 'new' }); }
+  function chatList(b) {
+    const convs = chatConvs();
+    paintChatBadge();
+    if (!convs.length) {
+      b.innerHTML = `<div class="cht">
+        <div class="chb"><span class="chb1"></span><span class="chb2">${i('note')}</span></div>
+        <h3>Pásate canciones con tus amigos</h3>
+        <p>Conversaciones con clave, canciones como tarjeta y un toque para escucharlas en el Feed.</p>
+        <button class="btn pri full chnew">Nueva conversación</button>
+        <button class="btn full chline chjoin">Unirme con una clave</button>
+        <p class="chnote">Sin notificaciones: lo nuevo aparece al abrir Soundeo.</p>
+      </div>`;
+    } else {
+      b.innerHTML = '<div class="chact"><button class="btn pri chnew">' + i('plus') + 'Nueva</button><button class="btn chjoin">' + i('users') + 'Unirse</button></div><div class="chlist"></div><p class="chnote">Sin notificaciones: lo nuevo aparece al abrir Soundeo.</p>';
+      const box = $('.chlist', b);
+      convs.map((c) => ({ c, m: lastMsg(c.id) })).sort((x, y) => ((y.m && y.m.at) || y.c.at || 0) - ((x.m && x.m.at) || x.c.at || 0)).forEach(({ c, m }) => {
+        const n = unreadOf(c.id);
+        const d = chatData(c.id);
+        const who = Object.keys(d.mem).map((pid) => memName(c.id, pid)).filter((x) => x !== 'Tú');
+        const sub = c.gone ? 'Ya no existe en Dropbox' : c.dead ? 'La llave de Dropbox ya no vale' : m ? msgPreview(c.id, m) : (who.length ? who.join(', ') + ' y tú' : 'Aún sin mensajes');
+        const x = el(`<button class="chrow${n ? ' unread' : ''}" data-id="${esc(c.id)}">${avatar(c.name, hueOf(c.id))}<span class="chrt"><b>${esc(c.name)}</b><small>${esc(sub)}</small></span><span class="chrm"><em>${esc(whenShort(m ? m.at : c.at))}</em>${n ? '<i class="chn">' + (n > 99 ? '99+' : n) + '</i>' : ''}</span></button>`);
+        x.addEventListener('click', () => pgOpen('chat-conv', c.id));
+        box.appendChild(x);
+      });
+    }
+    $('.chnew', b).addEventListener('click', chatNewGo);
+    $('.chjoin', b).addEventListener('click', () => pgOpen('chat-join', null));
+    // con Dropbox conectado: las conversaciones de la carpeta que no están en este móvil
+    if (dbxOwn()) {
+      const own = el('<div class="chown"></div>');
+      b.appendChild(own);
+      chatOwnLoad().then((list) => {
+        if (!list.length || !own.isConnected) return;
+        own.innerHTML = '<div class="sec">En tu Dropbox</div>';
+        list.forEach((o) => {
+          const x = el(`<button class="chrow"><span class="chav" style="--ih:${hueOf(o.id)}">${esc(initial(o.name))}</span><span class="chrt"><b>${esc(o.name)}</b><small>No está en este móvil · toca para entrar</small></span></button>`);
+          x.addEventListener('click', () => {
+            const me = chatMe(false);
+            if (!me || !me.name) { pgOpen('chat-join', { key: 'sx1.' + o.id + '.' + dbxOwn() }); return; }
+            chatJoin('sx1.' + o.id + '.' + dbxOwn(), me.name).then((c) => { chatOwnList = null; pgOpen('chat-conv', c.id); }, (e) => toast(e.message));
+          });
+          own.appendChild(x);
+        });
+      }).catch(() => {});
+    }
+    const me = chatMe(false);
+    const rows = el('<div class="chset"></div>');
+    rows.appendChild(pgRow({ icon: 'user', label: 'Tu nombre', val: (me && me.name) || 'Sin poner', fn: () => pgOpen('chat-name') }));
+    rows.appendChild(pgRow({ icon: 'layers', label: 'Dropbox', val: dbxOwn() ? 'Conectado en este móvil' : convs.length ? 'Con la llave de tus conversaciones' : 'Sin conectar', fn: () => pgOpen('chat-dbx', null) }));
+    b.appendChild(rows);
     return 'Chat';
+  }
+  function chatDbxPage(b, foot, arg) {
+    const own = dbxOwn();
+    b.innerHTML = `<div class="chform">
+      <p class="chp">${own ? 'Dropbox está conectado en este móvil. Las conversaciones y las listas Max se guardan en tu carpeta <b>Aplicaciones/Soundeo Feed Chat</b>; la app no puede ver nada más de tu Dropbox.' : 'Solo hace falta en el móvil que crea la primera conversación. Todo se guarda en tu carpeta <b>Aplicaciones/Soundeo Feed Chat</b>; la app no puede ver nada más de tu Dropbox.'}</p>
+      ${own ? '<button class="btn full chforget">Olvidar Dropbox en este móvil</button><p class="chnote">Tus amigos siguen pudiendo entrar con sus claves. Para cortarles el paso a todos: en la web de Dropbox, Ajustes → Aplicaciones conectadas → Soundeo Feed Chat → Desconectar.</p>' : `
+      <div class="chstep"><b>1</b><span>Abre Dropbox, inicia sesión si te lo pide y pulsa <b>Permitir</b>.</span></div>
+      <a class="btn pri full chopen" target="_blank" rel="noopener" href="#">Abrir Dropbox</a>
+      <div class="chstep"><b>2</b><span>Dropbox te enseña un código. Cópialo, vuelve aquí y pégalo.</span></div>
+      <input class="chin1 chcode" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Código de Dropbox">
+      <div class="cherr"></div>`}
+    </div>`;
+    if (own) {
+      $('.chforget', b).addEventListener('click', () => {
+        actionSheet('¿Olvidar Dropbox en este móvil?', '', 'Las conversaciones en las que estás siguen funcionando con su propia llave.', [
+          { label: 'Olvidar', icon: 'close', fn: () => { LS.del('dbx'); chatOwnList = null; toast('Dropbox olvidado en este móvil'); pgRender(true); } },
+        ]);
+      });
+      return 'Dropbox';
+    }
+    const a = $('.chopen', b);
+    a.classList.add('wait');
+    dbxAuthUrl().then((u) => { a.href = u; a.classList.remove('wait'); }).catch(() => { $('.cherr', b).textContent = 'Este navegador no deja preparar la conexión.'; });
+    a.addEventListener('click', (e) => { if (a.classList.contains('wait')) e.preventDefault(); });
+    const go = el('<button class="btn pri">Conectar</button>');
+    go.addEventListener('click', () => {
+      const code = $('.chcode', b).value.trim();
+      if (!code) { $('.cherr', b).textContent = 'Pega el código que te da Dropbox.'; return; }
+      go.disabled = true;
+      go.textContent = 'Conectando…';
+      dbxConnect(code).then(async (r) => {
+        await dbxAfterConnect(r);
+        toast('Dropbox conectado');
+        const top = pgStack[pgStack.length - 1];
+        if (top && top.id === 'chat-dbx') {
+          if (arg && arg.next === 'new') { top.id = 'chat-new'; top.arg = null; pgRender(); } else pgBack();
+        }
+      }, (e) => { go.disabled = false; go.textContent = 'Conectar'; $('.cherr', b).textContent = e.message; });
+    });
+    foot.appendChild(go);
+    return 'Conectar Dropbox';
+  }
+  function chatNameInput(cls, val, ph) { return `<input class="chin1 ${cls}" type="text" maxlength="40" autocomplete="off" autocapitalize="words" value="${esc(val || '')}" placeholder="${esc(ph)}">`; }
+  function chatNewPage(b, foot) {
+    const me = chatMe(false);
+    b.innerHTML = `<div class="chform"><label class="chlab">NOMBRE DE LA CONVERSACIÓN</label>${chatNameInput('chname', '', 'Temazos')}
+      <label class="chlab">TU NOMBRE</label>${chatNameInput('chme', me && me.name, 'Cómo te verán los demás')}<div class="cherr"></div></div>`;
+    const go = el('<button class="btn pri">Crear</button>');
+    go.addEventListener('click', () => {
+      const nm = $('.chname', b).value.trim();
+      const my = $('.chme', b).value.trim();
+      if (!nm || !my) { $('.cherr', b).textContent = !nm ? 'Ponle un nombre a la conversación.' : 'Escribe tu nombre.'; return; }
+      go.disabled = true;
+      go.textContent = 'Creando…';
+      chatCreate(nm, my).then((c) => {
+        const top = pgStack[pgStack.length - 1];
+        if (top && top.id === 'chat-new') { top.id = 'chat-invite'; top.arg = c.id; pgRender(); }
+      }, (e) => { go.disabled = false; go.textContent = 'Crear'; $('.cherr', b).textContent = 'No se ha podido crear: ' + dbxErr('crear', e); });
+    });
+    foot.appendChild(go);
+    return 'Nueva conversación';
+  }
+  function chatInvitePage(b, foot, id) {
+    const c = chatConv(id);
+    if (!c) { pgBack(); return ''; }
+    b.innerHTML = `<div class="chform"><p class="chp">Manda a tus amigos el enlace y la clave de <b>${esc(c.name)}</b>. Con la misma clave entran 2, 3 o más.</p>
+      <label class="chlab">CLAVE PARA TUS AMIGOS</label><div class="chkey">${esc(chatKeyOf(c))}</div>
+      <div class="chact"><button class="btn pri chinv">${i('ext')}Invitar</button><button class="btn chcopy">${i('check')}Copiar clave</button></div>
+      <p class="chnote">Quien tenga la clave puede leer y escribir en este chat (y, por debajo, en la carpeta entera del chat de tu Dropbox).</p></div>`;
+    $('.chinv', b).addEventListener('click', () => chatInvite(c));
+    $('.chcopy', b).addEventListener('click', () => copyText(chatKeyOf(c)));
+    const go = el('<button class="btn pri">Ir a la conversación</button>');
+    go.addEventListener('click', () => { const top = pgStack[pgStack.length - 1]; if (top) { top.id = 'chat-conv'; top.arg = c.id; pgRender(); } });
+    foot.appendChild(go);
+    return 'Invitar';
+  }
+  function chatJoinPage(b, foot, arg) {
+    const me = chatMe(false);
+    b.innerHTML = `<div class="chform"><label class="chlab">CLAVE</label><textarea class="chin1 chkeyin" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sx1.…">${esc((arg && arg.key) || '')}</textarea>
+      <label class="chlab">TU NOMBRE</label>${chatNameInput('chme', me && me.name, 'Cómo te verán los demás')}<div class="cherr"></div>
+      <p class="chnote">Te la pasa quien creó la conversación (botón «Invitar»).</p></div>`;
+    const go = el('<button class="btn pri">Unirse</button>');
+    go.addEventListener('click', () => {
+      const key = $('.chkeyin', b).value;
+      const my = $('.chme', b).value.trim();
+      if (!parseChatKey(key)) { $('.cherr', b).textContent = 'Esa clave no es válida: cópiala entera, empieza por «sx1.»'; return; }
+      if (!my) { $('.cherr', b).textContent = 'Escribe tu nombre.'; return; }
+      go.disabled = true;
+      go.textContent = 'Entrando…';
+      chatJoin(key, my).then((c) => {
+        const top = pgStack[pgStack.length - 1];
+        if (top && top.id === 'chat-join') { top.id = 'chat-conv'; top.arg = c.id; pgRender(); }
+      }, (e) => { go.disabled = false; go.textContent = 'Unirse'; $('.cherr', b).textContent = e.message && !/^Dropbox/.test(e.message) ? e.message : 'No se ha podido entrar: ' + dbxErr('unirse', e); });
+    });
+    foot.appendChild(go);
+    return 'Unirse';
+  }
+  function chatNamePage(b, foot) {
+    const me = chatMe(false);
+    b.innerHTML = `<div class="chform"><label class="chlab">TU NOMBRE</label>${chatNameInput('chme', me && me.name, 'Cómo te verán los demás')}<p class="chnote">Lo ven todas tus conversaciones.</p></div>`;
+    const go = el('<button class="btn pri">Guardar</button>');
+    go.addEventListener('click', () => {
+      const v = $('.chme', b).value.trim();
+      if (!v) return;
+      setMyName(v);
+      chatConvs().forEach((c) => { if (!c.gone && !c.dead) chatWriteMe(c).catch((e) => dbxErr('nombre', e)); });
+      maxSyncSoon(500);
+      pgBack();
+    });
+    foot.appendChild(go);
+    return 'Tu nombre';
+  }
+  // Cómo ve este móvil a cada uno (solo aquí; el nombre que cada uno se pone no cambia)
+  function chatPeoplePage(b, foot, id) {
+    const c = chatConv(id);
+    if (!c) { pgBack(); return ''; }
+    const d = chatData(id);
+    const me = chatMe(false);
+    const al = chatAlias();
+    b.innerHTML = '<p class="chp">Cómo ves a cada uno en este móvil. Su nombre de verdad sale debajo.</p>';
+    Object.keys(d.mem).forEach((pid) => {
+      const mine = me && pid === me.id;
+      const real = d.mem[pid].name || 'Sin nombre';
+      const row = el(`<div class="chper">${avatar(mine ? me.name || 'Tú' : al[pid] || real, hueOf(pid))}<span class="chrt"><input class="chin1" type="text" maxlength="40" value="${esc(mine ? me.name || '' : al[pid] || '')}" placeholder="${esc(real)}"${mine ? ' data-me="1"' : ''}><small>${mine ? 'Tú · lo ven todos' : esc(real)}</small></span></div>`);
+      const inp = $('input', row);
+      inp.addEventListener('input', () => {
+        if (mine) return;
+        const a = chatAlias();
+        const v = clean(inp.value).slice(0, 40);
+        if (v) a[pid] = v; else delete a[pid];
+        LS.set('chatAlias', a);
+      });
+      inp.addEventListener('change', () => {
+        if (!mine) return;
+        const v = inp.value.trim();
+        if (!v) return;
+        setMyName(v);
+        chatConvs().forEach((x) => { if (!x.gone && !x.dead) chatWriteMe(x).catch((e) => dbxErr('nombre', e)); });
+      });
+      b.appendChild(row);
+    });
+    return 'Personas';
+  }
+  // La conversación: burbujas (las mías a la derecha), canciones como tarjeta, el campo para escribir abajo
+  function chatConvPage(b, foot, id) {
+    const c = chatConv(id);
+    if (!c) { pgBack(); return ''; }
+    const d = chatData(id);
+    const who = Object.keys(d.mem).map((pid) => memName(id, pid)).filter((x) => x !== 'Tú');
+    const act = $('.pga', pgEl);
+    if (act) {
+      act.innerHTML = '<button class="ibtn chmore" aria-label="Más">' + i('more') + '</button>';
+      $('.chmore', act).addEventListener('click', () => actionSheet(c.name, who.length ? who.join(', ') + ' y tú' : '', '', [
+        { label: 'Invitar', hint: 'Enlace y clave por WhatsApp…', icon: 'ext', fn: () => chatInvite(c) },
+        { label: 'Copiar clave', icon: 'check', fn: () => copyText(chatKeyOf(c)) },
+        { label: 'Personas', hint: 'Cómo ves a cada uno', icon: 'users', fn: () => pgOpen('chat-people', id) },
+        { label: 'Salir de la conversación', hint: 'Solo de este móvil; los demás la siguen teniendo', icon: 'door', fn: () => {
+          actionSheet('¿Salir de «' + c.name + '»?', '', 'Se quita de este móvil. Puedes volver a entrar con la clave.', [
+            { label: 'Salir', icon: 'door', fn: () => { chatLeave(id); pgPop(0); pgRender(); } },
+          ]);
+        } },
+      ]));
+    }
+    b.innerHTML = '<div class="chmsgs"></div>';
+    foot.innerHTML = `<div class="chbar"><input class="chtx" type="text" maxlength="1000" enterkeyhint="send" autocomplete="off" placeholder="Mensaje"><button class="chsend" aria-label="Enviar">${i('send')}</button></div>`;
+    const inp = $('.chtx', foot);
+    const send = () => {
+      const v = inp.value.trim();
+      if (!v) return;
+      inp.value = '';
+      chatSend(c, { text: v.slice(0, 1000) });
+    };
+    $('.chsend', foot).addEventListener('click', send);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+    chatPaintMsgs(id, true);
+    chatMarkSeen(id);
+    chatNow(id);
+    return c.name;
+  }
+  function chatPaintMsgs(id, first) {
+    if (!pgEl) return;
+    const box = $('.pgb .chmsgs', pgEl);
+    if (!box) return;
+    const body = $('.pgb', pgEl);
+    const atEnd = first || body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+    const c = chatConv(id);
+    const d = chatData(id);
+    const me = chatMe(false);
+    if (!d.msgs.length) {
+      box.innerHTML = `<div class="chempty">${c && c.gone ? 'Esta conversación ya no existe en Dropbox.' : c && c.dead ? 'La llave de Dropbox de esta conversación ya no vale. Pide una clave nueva.' : 'Aún no hay mensajes. Manda una canción desde el Feed (⋯ o el botón «Enviar» junto a la portada) o escribe algo.'}</div>`;
+      return;
+    }
+    let html = '';
+    let day = '';
+    let prev = '';
+    d.msgs.forEach((m) => {
+      const dl = dayLabel(m.at || Date.now());
+      if (dl !== day) { html += `<div class="chday">${esc(dl)}</div>`; day = dl; prev = ''; }
+      const mine = !!me && m.from === me.id;
+      const name = memName(id, m.from, m.name);
+      const head = !mine && m.from !== prev ? `<div class="mwho" style="--ih:${hueOf(m.from)}">${esc(name)}</div>` : '';
+      prev = m.from;
+      const st = m._pend ? 'enviando…' : m._fail ? '<button class="mretry">No enviado · Reintentar</button>' : '';
+      let inner;
+      if (m.s) {
+        const s = m.s;
+        const meta = s.meta || metaCache[s.id] || {};
+        const bits = [meta.b ? meta.b + ' BPM' : '', meta.k ? camelot(meta.k) || meta.k : '', s.genre || ''].filter(Boolean).join(' · ');
+        inner = `<button class="mtrk" data-id="${esc(s.id)}"><img alt="" loading="lazy" src="${esc(coverAt(s.cover || '', '110') || s.cover || '')}"><span class="mtt"><b>${esc(s.name || s.full || '')}</b><small>${esc([s.artist, s.mix].filter(Boolean).join(' · '))}</small>${bits ? '<em>' + esc(bits) + '</em>' : ''}</span><span class="mplay">${i('play')}</span></button>${m.note ? '<div class="mnote">' + esc(m.note) + '</div>' : ''}`;
+      } else inner = `<div class="mtxt">${esc(m.text || '')}</div>`;
+      html += `<div class="msg ${mine ? 'me' : 'ot'}${m.s ? ' trk' : ''}" data-k="${esc(m.k)}">${head}<div class="mbub">${inner}</div><div class="mtime">${hhmm(m.at || Date.now())}${st ? ' · ' + st : ''}</div></div>`;
+    });
+    box.innerHTML = html;
+    $$('.mtrk', box).forEach((x) => x.addEventListener('click', () => chatPlay(id, x.dataset.id)));
+    $$('.mretry', box).forEach((x) => x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const k = x.closest('.msg').dataset.k;
+      const m = d.msgs.find((y) => y.k === k);
+      if (m && c) chatPut(c, m);
+    }));
+    $$('.mtrk img', box).forEach((im) => { im.onerror = () => { const s = d.msgs.find((y) => y.s && y.s.id === im.closest('.mtrk').dataset.id); if (s && s.s.cover && im.src !== s.s.cover) im.src = s.s.cover; }; });
+    // mantener pulsado un mensaje tuyo: borrarlo (para todos)
+    $$('.msg.me', box).forEach((x) => {
+      let tm = 0;
+      let fired = false;
+      const cancel = () => clearTimeout(tm);
+      x.addEventListener('touchstart', () => { fired = false; tm = setTimeout(() => { fired = true; chatMsgMenu(id, x.dataset.k); }, 480); }, { passive: true });
+      x.addEventListener('touchmove', cancel, { passive: true });
+      x.addEventListener('touchend', cancel);
+      x.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!fired) chatMsgMenu(id, x.dataset.k); });
+      x.addEventListener('click', (e) => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+    });
+    if (atEnd) body.scrollTop = body.scrollHeight;
+  }
+  function chatMsgMenu(id, k) {
+    const c = chatConv(id);
+    const m = chatData(id).msgs.find((x) => x.k === k);
+    if (!c || !m) return;
+    actionSheet('Tu mensaje', m.s ? [m.s.name, m.s.artist].filter(Boolean).join(' · ') : short(m.text, 60), '', [
+      { label: 'Borrar mensaje', hint: 'Desaparece para todos', icon: 'close', fn: () => {
+        actionSheet('¿Borrar el mensaje?', '', 'Desaparece para todos la próxima vez que miren. No se puede deshacer.', [
+          { label: 'Borrar', icon: 'close', fn: () => chatDelete(c, m) },
+        ]);
+      } },
+    ]);
+  }
+  // Enviar una canción (desde ⋯ o el botón «Enviar» junto a la portada): elegir conversación, nota opcional y Enviar
+  function sendToChat(t) {
+    if (!ui3() || !t) return;
+    closeSheets();
+    closeSearch();
+    pgOpen('chat-send', snapOf(t), { root: true });
+  }
+  function chatSendPage(b, foot, snap) {
+    const convs = chatConvs().filter((c) => !c.gone && !c.dead);
+    const s = snap || {};
+    b.innerHTML = `<div class="chform"><div class="chsong"><img alt="" src="${esc(coverAt(s.cover || '', '110') || s.cover || '')}"><span class="mtt"><b>${esc(s.name || '')}</b><small>${esc([s.artist, s.mix].filter(Boolean).join(' · '))}</small></span></div></div>`;
+    const f = $('.chform', b);
+    if (!convs.length) {
+      f.appendChild(el('<p class="chp">Aún no estás en ninguna conversación. Crea una o únete con una clave, y vuelve a mandarla.</p>'));
+      const go = el('<button class="btn pri">Ir a Chat</button>');
+      go.addEventListener('click', chatGo);
+      foot.appendChild(go);
+      return 'Enviar a un chat';
+    }
+    const last = LS.get('chatLast', '');
+    let pick = (convs.find((c) => c.id === last) || convs[0]).id;
+    f.appendChild(el('<label class="chlab">CONVERSACIÓN</label>'));
+    const list = el('<div class="chpick"></div>');
+    convs.forEach((c) => {
+      const d = chatData(c.id);
+      const who = Object.keys(d.mem).map((pid) => memName(c.id, pid)).filter((x) => x !== 'Tú');
+      const x = el(`<button class="chrow${c.id === pick ? ' on' : ''}" data-id="${esc(c.id)}">${avatar(c.name, hueOf(c.id))}<span class="chrt"><b>${esc(c.name)}</b><small>${esc(who.length ? who.join(', ') + ' y tú' : 'Solo tú, de momento')}</small></span><span class="chrad"></span></button>`);
+      x.addEventListener('click', () => { pick = c.id; $$('.chrow', list).forEach((y) => y.classList.toggle('on', y.dataset.id === pick)); });
+      list.appendChild(x);
+    });
+    f.appendChild(list);
+    f.appendChild(el('<label class="chlab">NOTA (OPCIONAL)</label>'));
+    f.appendChild(el('<input class="chin1 chnotein" type="text" maxlength="300" placeholder="Esta para abrir…">'));
+    const go = el('<button class="btn pri">Enviar</button>');
+    go.addEventListener('click', () => {
+      const c = chatConv(pick);
+      if (!c) return;
+      const note = $('.chnotein', b).value.trim().slice(0, 300);
+      LS.set('chatLast', c.id);
+      pgClose();
+      toast('Enviando a ' + c.name + '…');
+      chatSend(c, { s: s, note }).then((okd) => toast(okd ? 'Enviada a ' + c.name : 'No se ha podido enviar: inténtalo desde la conversación', okd ? 'Ver' : 'Abrir', () => chatOpenConv(c.id)));
+    });
+    foot.appendChild(go);
+    return 'Enviar a un chat';
   }
 
   const PAGES = {
@@ -6243,6 +7457,15 @@
     'f-bpmkey'(b) { return bpmkey3(b); },
     home(b) { return home3(b); },
     chat(b) { return chat3(b); },
+    // 2.3 · el chat
+    'chat-dbx'(b, foot, arg) { return chatDbxPage(b, foot, arg); },
+    'chat-new'(b, foot) { return chatNewPage(b, foot); },
+    'chat-invite'(b, foot, arg) { return chatInvitePage(b, foot, arg); },
+    'chat-join'(b, foot, arg) { return chatJoinPage(b, foot, arg); },
+    'chat-name'(b, foot) { return chatNamePage(b, foot); },
+    'chat-people'(b, foot, arg) { return chatPeoplePage(b, foot, arg); },
+    'chat-conv'(b, foot, arg) { return chatConvPage(b, foot, arg); },
+    'chat-send'(b, foot, arg) { return chatSendPage(b, foot, arg); },
   };
 
   /* ───────────── ajustes ───────────── */
@@ -6542,6 +7765,18 @@
         return { on: ui3(), unlocked: !!prefs.ui3Unlocked, tabs: prefs.tabLayout, idleMin: la ? Math.round((Date.now() - la) / 60000) : null, nav: ln ? { min: Math.round((Date.now() - ln.t) / 60000), kind: ln.src && ln.src.kind, key: ln.src && ln.src.key, view: ln.view, tab: ln.tab } : null,
           folSeen: fs && Array.isArray(fs.ids) ? { n: fs.ids.length, min: Math.round((Date.now() - fs.t) / 60000) } : null, folCache: fc && Array.isArray(fc.tracks) ? { n: fc.tracks.length, min: Math.round((Date.now() - fc.t) / 60000), nuevas: folNewOf(fc.tracks, fs).length } : null, folNew: folNew.size, today: heardTodayN() };
       })(),
+      // 2.3 · chat y Max: estado, sin llaves ni claves ni mensajes
+      chat: (() => {
+        const me = chatMe(false);
+        return {
+          me: !!me, named: !!(me && me.name), dbx: dbxOwn() ? 'conectado' : chatConvs().length ? 'con claves' : 'no',
+          convs: chatConvs().map((c) => { const d = chatData(c.id); return { n: d.msgs.length, mem: Object.keys(d.mem).length, unread: unreadOf(c.id), gone: !!c.gone, dead: !!c.dead, cur: !!c.cur, min: c.at ? Math.round((Date.now() - c.at) / 60000) : null }; }),
+          polls: chatSt.polls, down: chatSt.down, errs: chatSt.errs, err: chatSt.err, lastS: chatSt.last ? Math.round((Date.now() - chatSt.last) / 1000) : null,
+          calls: dbxSt.calls, fails: dbxSt.fails, last: dbxSt.last, log: dbxSt.errs.map((e) => ({ s: Math.round((Date.now() - e.t) / 1000), w: e.w, m: e.m })),
+          fresh: stSt,
+        };
+      })(),
+      max: { n: maxDb.items.length, del: Object.keys(maxDb.del).length, syncs: maxSt.n, up: maxSt.up, err: maxSt.err, min: maxSt.at ? Math.round((Date.now() - maxSt.at) / 60000) : null },
     };
     if (t) {
       const fb = origFav(t);
@@ -6664,6 +7899,15 @@
 
   /* ───────────── arranque ───────────── */
   function init() {
+    // 2.3: enlace de invitación a un chat. Se apunta en la pestaña y se quita de la dirección antes de que la app salte
+    // de la portada a la lista; se abre cuando la app esté lista (chatPendingJoin).
+    try {
+      const jm = /[#&]sxjoin=([^&]+)/.exec(location.hash || '');
+      if (jm) {
+        SS.set('join', { c: decodeURIComponent(jm[1]), t: Date.now() });
+        history.replaceState(history.state, '', location.href.split('#')[0]);
+      }
+    } catch (e) {}
     const hs = parseHash();
     let navType = 'navigate';
     try { navType = (performance.getEntriesByType('navigation')[0] || {}).type || 'navigate'; } catch (e) {}
@@ -6829,6 +8073,10 @@
         setTimeout(() => toast('Nuevo: los botones Spotify y Apple Music, junto a la portada, buscan la canción en su app', 'Vale', () => {}), 4200);
       }
       if (loggedOut) setTimeout(() => toast('Sin sesión de Soundeo en esta pestaña. ¿Es una pestaña privada?', 'Iniciar sesión', goLogin), 1200);
+      // 2.3: chat (mirar Dropbox mientras la app está abierta) y Max (juntar con lo de Dropbox)
+      chatTick();
+      chatPendingJoin();
+      if (ui3() && maxTok()) maxSyncSoon(4000);
     } else tellLogin();
   }
 
